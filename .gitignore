@@ -1,0 +1,51 @@
+# ─── Secrets (NEVER commit) ───────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+**/private_key*
+**/wallet*.json
+
+# ─── Data (large / regenerable — kept out of git) ─────────────────────────
+data/
+*.csv
+*.parquet
+*.duckdb
+*.sqlite
+*.db
+logs/
+*.log
+
+# ─── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.uv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ─── Notebooks ──────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ─── OS / IDE ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+.idea/
+
+# ─── Local model artifacts (Ollama pulls live outside repo) ──────────────────
+models/
+*.gguf
