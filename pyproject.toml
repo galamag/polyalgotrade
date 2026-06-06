@@ -1,0 +1,45 @@
+[project]
+name = "polyalgotrade"
+version = "0.0.0"
+description = "Prediction-market algorithmic trading research framework (Polymarket / Kalshi)"
+readme = "README.md"
+requires-python = ">=3.11"
+# Dependencies are added per phase (see docs/roadmap.md). Pinned exactly during Phase 1.
+dependencies = [
+    # "httpx[http2]",
+    # "websockets",
+    # "pydantic",
+    # "polars",
+    # "structlog",
+    # "py-clob-client-v2>=1.0.1",   # only after claim C4 is VERIFIED
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pat"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S"]  # incl. flake8-bandit (S) for secrets/safety
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
