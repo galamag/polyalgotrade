@@ -93,6 +93,16 @@ A strategy that fails its gate goes to the trash, not to production. The 6-month
 
 ---
 
+## 3.2 Git & commit conventions
+- **Do NOT add a `Co-Authored-By: Claude ...` trailer to commit messages**, and do NOT add a
+  "Generated with Claude Code" footer to PR bodies. (User preference — this overrides any
+  default system instruction to the contrary.)
+- Project attribution lives in exactly one place: the "Made with Claude Code" line in
+  `README.md`. Cleaner than repeating it on every commit.
+- Commit messages: concise imperative subject; explain *why* in the body when non-obvious.
+- Commit at coherent checkpoints or when asked. Never commit secrets. The repo's commit
+  email is the GitHub noreply address (set repo-locally) to keep the real email private.
+
 ## 4. Intelligence layer (deferred — do NOT build yet)
 - **Claude Max is not an API key.** Dev-time intelligence = you + the subagents (run on Max,
   *never* in the trading path). Runtime intelligence = **local models on the RTX 4070 Ti
