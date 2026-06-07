@@ -4,17 +4,20 @@ The spine of the project. Each phase has a **gate**; we do not advance until it 
 Real money appears only at Phase 5, and only for strategies with a confirmed positive,
 fee-adjusted edge.
 
-**Current position: Phase 0 (foundation in place; claims verification next).**
+**Current position: Phase 0 COMPLETE (gate passed 2026-06-07) → Phase 1 ready.**
+See [`research/phase0-verdict.md`](research/phase0-verdict.md).
 
 ---
 
-## Phase 0 — Foundation & claims verification
+## Phase 0 — Foundation & claims verification  ✅ COMPLETE
 - [x] Git, repo skeleton, `CLAUDE.md`, docs structure, subagents, design spec.
-- [ ] Verify architecture-critical research claims against primary sources
-      (`research/claims-verification.md`): CTF Exchange V2 addresses, `py-clob-client-v2`
-      existence/version, fee formulas, KZ venue access today, CLOB endpoints.
-- [ ] `ping`/`mtr` a candidate VPS region → Polymarket CLOB; record real latency.
-- **Gate:** all *critical* claims marked VERIFIED or REFUTED (not PENDING).
+- [x] Verify architecture-critical research claims against primary sources
+      (`research/claims-verification.md`): V2 addresses ✅, SDK → `polymarket-client` (ADR 0008),
+      fee formulas (corrected, ADR 0009), KZ access ✅, endpoints. Verdict: `phase0-verdict.md`.
+- [ ] ~~`ping`/`mtr` VPS → CLOB latency~~ → **deferred to VPS setup** (needs a real VPS; L1).
+- **Gate: ✅ PASSED** — no critical claim PENDING. Corrections captured in ADRs 0007–0009.
+- **Carried into Phase 1:** I5 (UMA-vs-Chainlink settlement — on-chain check), I6 (KYC), and
+  the SDK/fee/endpoint corrections.
 
 ## Phase 1 — Data + cost model + backtest core
 - [ ] Data layer: historical `OrderFilled` (Polygon RPC + Gamma) → normalized schema.

@@ -10,8 +10,12 @@ makers don't fully cover the book, leaving spreads of ~3–8¢. By quoting both 
 the spread and, where applicable, maker rebates — while paying little/no taker fee.
 
 ## 2. Edge thesis
-- **Source of edge:** spread capture + maker rebate; on **geopolitics the taker fee is 0%**
-  (claim C6), and on politics maker rebates pay ~25% of the taker pool (claim C7).
+- **Source of edge:** spread capture + (sometimes) maker rebate. ⚠️ **Corrected in Phase 0:**
+  on **geopolitics the taker fee is 0% (C6 verified) — but the maker-rebate pool is therefore
+  also 0**, so a geopolitics MM earns **pure spread, no rebate income**. Rebates (25% non-crypto
+  / 20% crypto, C7) only exist where takers actually pay fees — i.e. **politics and other
+  categories**, not geopolitics. So the two sub-niches have different economics: geopolitics =
+  zero-fee spread capture; politics = spread + daily-batch rebate ($1/day gate).
 - **Why it survives competition:** these markets are below the threshold where co-located HFT
   bothers to compete; the research names this the best edge/complexity ratio for small capital.
 - **Expected gross edge:** the quoted half-spread per filled round-trip (TBD from data).

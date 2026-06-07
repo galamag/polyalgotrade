@@ -4,20 +4,26 @@
 order/fill — in backtest, paper, and live — gets its cost from here. No fee math lives
 anywhere else. Owned/audited by the `fee-cost-auditor` subagent.
 
-> All formulas below are **PENDING verification** (claims C5–C8 in
-> [../research/claims-verification.md](../research/claims-verification.md)). Implement them as
-> *configurable* parameters, and verify against the live API before trusting any backtest.
+> ✅ **Verified 2026-06-07** against official fee docs (claims C5–C8; ADR
+> [0009](../decisions/0009-fee-model-corrections.md)). Constants below are the verified values;
+> keep them *configurable* (a fee schedule can change) and re-audit before live.
 
 ## What the model must account for
 
-1. **Polymarket taker fee (dynamic).** Research: `fee = C · 0.07 · p · (1−p)` per share on
-   crypto, peaking ~1.56–1.80% at `p=0.50`. Must be per-category (crypto vs other) and
-   ideally read live via `getClobMarketInfo` rather than hard-coded.
-2. **Geopolitics = 0% taker fee** (claim C6) — the Phase-2 MM edge. Verify per-market.
-3. **Maker rebate.** ~25% of the taker pool (20% on crypto), paid daily in pUSD, min $1
-   (claim C7). Model it as expected rebate per filled maker size.
-4. **Kalshi fee.** `round(0.07 · price · (1−price), 2)` per contract; maker effectively $0 by
-   rounding (claim C8).
+1. **Polymarket taker fee.** `fee = shares · feeRate · p · (1−p)`, rounded to 5 dp, min
+   0.00001. **Per-category `feeRate`** (config table): Crypto 0.07 · Sports 0.03 · Finance 0.04
+   · Politics 0.04 · Economics 0.05 · Culture 0.05 · Weather 0.05 · Tech 0.04 · Mentions 0.04 ·
+   Other 0.05 · **Geopolitics 0.0**. Crypto peak is **exactly 1.75%** at p=0.5 — derive from
+   the formula, never hard-code the peak. **Makers are never charged.**
+2. **Geopolitics = 0% taker fee** (C6, verified). Nuance: the maker-rebate pool there is also
+   0 → a geopolitics maker earns **pure spread, no rebate income**.
+3. **Polymarket maker rebate** (C7, verified). 25% non-crypto / 20% crypto of the taker pool,
+   paid **daily in pUSD, $1 minimum** (rolls over). Model as a **separate daily batch credit**,
+   NOT a per-trade fee reduction. On a $50 bankroll the $1/day gate may rarely trigger.
+4. **Kalshi fee** (C8, verified — research was wrong). Taker:
+   `ceil(0.07 · p · (1−p) · contracts, $0.0001)` — **CEIL** rounding, not `round(,2)`. **Maker
+   fee = 0.0175** (25% of taker), also ceil-rounded — **not $0**. Per-series `fee_multiplier`
+   can override 0.07.
 5. **Gas.** Polygon tx ≈ $0.0024 (claim I7) — negligible but logged, never ignored.
 6. **On/off-ramp.** USDC↔Binance↔P2P ≈ 1–2% (claim P2); MoonPay debit 2–3% (avoid). Applied
    at the bankroll level, not per trade, but tracked.

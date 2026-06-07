@@ -11,7 +11,7 @@ dependencies = [
     # "pydantic",
     # "polars",
     # "structlog",
-    # "py-clob-client-v2>=1.0.1",   # only after claim C4 is VERIFIED
+    # "polymarket-client>=0.1.0b3",  # unified py-sdk; beta — allow prerelease (ADR 0008)
 ]
 
 [project.optional-dependencies]
