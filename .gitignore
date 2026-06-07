@@ -46,6 +46,11 @@ Thumbs.db
 !.vscode/settings.shared.json
 .idea/
 
+# ─── Obsidian (docs/ is an Obsidian vault) ─────────────────────────────────
+docs/.obsidian/
+.obsidian/
+.trash/
+
 # ─── Local model artifacts (Ollama pulls live outside repo) ──────────────────
 models/
 *.gguf
