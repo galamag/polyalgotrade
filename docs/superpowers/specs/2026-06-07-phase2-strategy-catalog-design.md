@@ -147,16 +147,78 @@ budget.
 book (must be **self-recorded** live). Hence B3 is **paper-first**: validate against the live book
 once the recorder exists, rather than a non-existent historical book.
 
-## Section 2 — Market-making deep design (B1)
+## Section 2 — Market-making deep design (B1, geopolitics) [approved]
 
-> **Status: in progress.** This is the next brainstorm section. It will specify quoting mechanics,
-> parameters (spread, size, inventory caps), the fill/adverse-selection model, fee & rebate
-> treatment, the backtest plan, and the verdict gate — and it folds in the two **ADR 0012
-> prerequisites** that are Phase-2 entry criteria:
-> 1. **Inventory mark-to-market** in `analytics/metrics.py` (today `gross_pnl` is realized
->    cash-flow only; an MM that ends a window holding inventory shows a false PnL — the single most
->    important analytics gap).
-> 2. **Parser fix** — derive price/size from the USDC leg via `assetId == "0"` (not the magnitude
->    heuristic) and validate against a real fetched sample.
->
-> The detailed design will be appended here and mirrored into `docs/strategies/market-making.md`.
+**Status:** approved by user 2026-06-07. Locked choices: v1 = **simple fixed-spread**; inventory
+MtM = **last − haircut**; backtest = **parameter sweep**. Mirrored into
+`docs/strategies/market-making.md`.
+
+### Edge
+On low-liquidity geopolitics markets HFT does not fully cover the book, leaving wide spreads
+(research: ~2–8¢ — *unverified, directional*). Quoting both sides captures the spread. Geopolitics
+taker fee = 0% **and** the rebate pool = 0, so **edge = pure spread − adverse selection − inventory
+risk**. This is the cleanest MM test: no fee or rebate confounds the verdict.
+
+### Adverse selection is the real enemy (not fees)
+Spread capture is gross profit; adverse selection is what kills it — we get filled exactly when we
+are on the wrong side of an informed move (a resting bid fills as the market sells *through* it,
+then keeps falling). The backtest MUST model this or it reports fake "pure-spread" profit. The
+existing through-trade fill model does it naturally: a bid fills only on a trade strictly below it
+(the market moving down through us), so we are systematically filled into adverse moves.
+
+### Quoting mechanics (v1 — simple fixed spread)
+- **Fair value `fv`** = EWMA of recent trades (no book → trade-derived proxy for mid).
+- Symmetric quote: `bid = fv − half_spread`, `ask = fv + half_spread`; both resting **MAKER** (GTC).
+- Fixed size `q` per side, capped. **Inventory cap ±I_max**: at the cap, quote only the
+  inventory-reducing side.
+- Requote when `fv` moves beyond a threshold.
+- *Deferred to v2 (documented, not built):* inventory-skewed quoting (Avellaneda–Stoikov). Pursue
+  only if the simple version shows promise — if even the simple baseline is −EV, added complexity is
+  unjustified (YAGNI).
+
+### Fill model (backtest) + honest caveat
+`BacktestBroker` through-trade rule (strict inequality, MAKER-classified, fee=0 on geopolitics) is
+conservative (back-of-queue) and produces adverse selection naturally. **Caveat:** with no
+historical book this is a **lower bound on fills** (we miss fills we would get in reality). The MM
+backtest verdict is therefore a *directional lower bound*; the real validation is **paper trading on
+the live book** (Phase 3, ADR 0014).
+
+### Inventory mark-to-market (ADR 0012 prerequisite) — last − haircut
+At window end, residual inventory is valued at the **last trade price minus a half-spread liquidation
+haircut** (the cost of crossing to flatten). Realistic for an MM that flattens *before* resolution,
+and keeps the verdict honest (an MM almost always ends a window holding inventory). Rejected:
+resolution-value (0/1) mis-states a strategy that does not hold to resolution; last/mid with no
+haircut is mildly optimistic.
+
+### Fee / rebate
+Geopolitics: 0 taker / 0 rebate = pure spread. B2 (politics) later adds the maker rebate as a
+**separate daily-batch credit** ($1/day gate) in analytics — never in the strategy or per-trade.
+
+### Risk (`risk/` layer)
+≤$5/position (paper/early-live); ≤25% bankroll total; 3–5 concurrent markets; inventory cap ±I_max;
+**flatten before resolution** (geopolitics resolves via UMA → dispute risk; sell winners ≥$0.95);
+kill-switch on drawdown.
+
+### Strategy interface (CLAUDE.md principle 8)
+A `Strategy` plugin (`on_event(...) -> list[OrderAction]`, post/cancel) runs unchanged across
+`BacktestBroker` / `PaperBroker` / `LiveBroker`. The strategy is pure decision logic; the broker
+owns fills. This is what makes the verdict trustworthy.
+
+### Backtest plan
+- Data: OrderFilled for **geopolitics** markets (Gamma category filter) since 2026-04-28; real
+  fetch — but **first** fix the parser to use `assetId == "0"` (ADR 0012).
+- Replay the per-market trade stream → strategy quotes → collect ≥1000 fills (across markets).
+- Metrics (with inventory MtM): net PnL, Sharpe, win-rate, max drawdown, inventory stats.
+- **Parameter sweep:** `half_spread ∈ {1,2,3,5}¢` × size × `I_max`; report the honest frontier (many
+  configs likely −EV). Pick the optimum from data, do not guess.
+- Verdict gate: **n_trades ≥ 1000 ∧ net EV > 0 (after fees) ∧ Sharpe > 1.0**. Fail → iterate
+  (B2 politics, or v2 inventory-skew) or trash per roadmap triggers.
+
+### Prerequisites folded into the plan as first tasks (ADR 0012)
+1. **Inventory mark-to-market** in `analytics/metrics.py` (today `gross_pnl` is realized cash-flow
+   only — the single most important analytics gap).
+2. **Parser fix** — derive price/size from the USDC leg via `assetId == "0"` + validate on a real
+   fetched sample.
+
+*(Claim I8 — OrderFilled maker/taker addresses — is NOT needed for MM, only for C1 copy-trading, so
+MM is unblocked.)*

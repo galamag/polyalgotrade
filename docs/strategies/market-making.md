@@ -1,6 +1,7 @@
 # Strategy: Market Making (first wave)
 
-- **Status:** Hypothesis (implementation begins at roadmap Phase 2)
+- **Status:** Design approved (v1, 2026-06-07) — implementation next. Full design: spec
+  `docs/superpowers/specs/2026-06-07-phase2-strategy-catalog-design.md` Section 2.
 - **Roadmap phase:** 2
 - **Owner subagent:** quant-researcher (+ fee-cost-auditor, risk-manager)
 
@@ -33,11 +34,22 @@ the spread and, where applicable, maker rebates — while paying little/no taker
 - Window: the post-V2 period (since 2026-04-28) via `OrderFilled` (RPC) + Gamma metadata.
 - Order-book depth/spread series to estimate fill probability.
 
-## 5. Backtest plan
-- **Conservative fill model:** assume back-of-queue; a maker quote fills only when the book
-  trades through it; model adverse selection (we get filled when the market moves against us).
-- Sample ≥1000 simulated quotes/fills.
-- Metrics: net PnL, Sharpe, win-rate, max drawdown, **fee/rebate drag**, inventory risk.
+## 5. Backtest plan (v1 — approved 2026-06-07)
+- **Quoting (v1, simple fixed-spread):** fair value `fv` = EWMA of recent trades; symmetric
+  `bid = fv − half_spread`, `ask = fv + half_spread`, resting MAKER (GTC); fixed size `q`; inventory
+  cap ±I_max (at the cap, quote only the inventory-reducing side). Inventory-skew (Avellaneda–
+  Stoikov) is v2 — documented, not built (YAGNI).
+- **Conservative fill model:** the `BacktestBroker` through-trade rule (strict inequality, MAKER,
+  fee=0 on geopolitics) — back-of-queue; adverse selection emerges naturally (a bid fills only on a
+  trade strictly below it). **Caveat:** with no historical book this is a *lower bound on fills*;
+  the verdict is directional and the real proof is paper (Phase 3, ADR 0014).
+- **Inventory mark-to-market (ADR 0012):** value residual inventory at last trade price minus a
+  half-spread liquidation haircut. (Resolution-value rejected: an MM flattens before resolution.)
+- **Parameter sweep:** `half_spread ∈ {1,2,3,5}¢` × size × I_max; report the honest frontier (many
+  configs likely −EV).
+- Sample ≥1000 simulated fills (across markets). First fix the parser to `assetId == "0"` and run a
+  real geopolitics fetch (ADR 0012).
+- Metrics: net PnL, Sharpe, win-rate, max drawdown, **fee/rebate drag**, inventory stats.
 
 ## 6. Risk
 - Sizing: ≤$5/position in paper/early-live; ≤25% bankroll total; 3–5 concurrent.
