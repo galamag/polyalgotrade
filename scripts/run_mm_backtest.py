@@ -15,6 +15,7 @@ primary-verified (CLAUDE.md principle 2).  Without a filter all tokens are used.
 
 from __future__ import annotations
 
+import argparse
 import json
 from decimal import Decimal
 from typing import Any
@@ -70,10 +71,11 @@ def run_sweep(
 
 
 def print_frontier(rows: list[dict[str, Any]]) -> None:
-    print("half_spread | n_trades | net_pnl | inv_value | sharpe | advance")  # noqa: T201
+    """Print the parameter-sweep frontier as an aligned table (one row per half_spread)."""
+    print("half_spread | n_trades | net_pnl | inv_value | sharpe | advance")
     for r in rows:
         res, v = r["result"], r["verdict"]
-        print(  # noqa: T201
+        print(
             f"  {r['half_spread']!s:>9} | {res.n_trades:>8} | {res.net_pnl:>7} | "
             f"{res.inventory_value:>9} | {res.sharpe:>6.3f} | {v.advance}"
         )
@@ -103,8 +105,6 @@ if __name__ == "__main__":
     # Token-id filtering is OPTIONAL (pass --tokens as comma-separated ids).
     # The Gamma geopolitics query to derive a token set is deferred (unverified).
     # ---------------------------------------------------------------------------
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="Run MM parameter sweep on saved OrderFilled JSON."
     )
@@ -132,7 +132,7 @@ if __name__ == "__main__":
 
     log.info("mm_backtest.start", json_path=args.json_path)
 
-    with open(args.json_path) as fh:
+    with open(args.json_path, encoding="utf-8") as fh:
         raw_events: list[dict[str, Any]] = json.load(fh)
 
     log.info("mm_backtest.events_loaded", count=len(raw_events))
