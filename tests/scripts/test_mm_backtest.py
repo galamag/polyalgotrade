@@ -55,3 +55,21 @@ def test_pipeline_reaches_1000_fills_and_produces_verdict() -> None:
     r = rows[0]
     assert r["result"].n_trades >= 1000  # ~1500 expected
     assert r["verdict"].reason  # non-empty verdict string (advance True/False both fine)
+
+
+def test_streams_from_fills_groups_orders_and_filters() -> None:
+    from pat.core.types import Fill, Liquidity
+    from scripts.run_mm_backtest import streams_from_fills
+
+    fills = [
+        Fill(order_id="o1", token_id="a", price=Decimal("0.5"), size=Decimal("3"),
+             fee=Decimal("0"), liquidity=Liquidity.MAKER, mode="backtest", ts=2),
+        Fill(order_id="o2", token_id="a", price=Decimal("0.4"), size=Decimal("1"),
+             fee=Decimal("0"), liquidity=Liquidity.MAKER, mode="backtest", ts=1),
+        Fill(order_id="o3", token_id="b", price=Decimal("0.6"), size=Decimal("2"),
+             fee=Decimal("0"), liquidity=Liquidity.MAKER, mode="backtest", ts=3),
+    ]
+    streams = streams_from_fills(fills, token_ids={"a"})
+    assert set(streams) == {"a"}                       # 'b' filtered out
+    assert streams["a"] == [(Decimal("0.4"), Decimal("1")),
+                            (Decimal("0.5"), Decimal("3"))]   # ts-ordered
