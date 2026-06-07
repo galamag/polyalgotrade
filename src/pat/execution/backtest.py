@@ -105,7 +105,7 @@ class BacktestBroker:
         """Remove a resting order by client_id (no-op if absent)."""
         self._book = [r for r in self._book if r.order.client_id != client_id]
         if self._journal is not None:
-            self._journal.record(event="cancel", client_id=client_id, mode="backtest")
+            self._journal.record(event="cancel", client_id=client_id)
 
     def on_trade(self, price: Decimal, size: Decimal) -> list[Fill]:
         """Feed a trade event and match against resting orders.
