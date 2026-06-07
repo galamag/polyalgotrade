@@ -35,7 +35,7 @@ target-version = "py311"
 select = ["E", "F", "I", "B", "UP", "ASYNC", "S"]  # incl. flake8-bandit (S) for secrets/safety
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S106"]   # assert + domain kwargs that look like passwords (token_id, etc.)
+"tests/**" = ["S101", "S105", "S106"]   # assert + hardcoded-password false positives on token_id strings
 "scripts/**" = ["S101"]
 
 [tool.mypy]

@@ -9,7 +9,9 @@ secrets/
 **/wallet*.json
 
 # ─── Data (large / regenerable — kept out of git) ─────────────────────────
-data/
+# Only the top-level data/ directory (raw RPC dumps, processed parquet, etc.).
+# This must NOT match tests/data/ or src/pat/data/ — hence the leading slash.
+/data/
 *.csv
 *.parquet
 *.duckdb
