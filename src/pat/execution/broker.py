@@ -12,7 +12,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
-from pat.core.types import Order, Position
+from pat.core.types import Fill, Order, Position
 
 
 @runtime_checkable
@@ -41,7 +41,7 @@ class Broker(Protocol):
         """
         ...
 
-    def on_trade(self, price: Decimal, size: Decimal) -> None:
+    def on_trade(self, price: Decimal, size: Decimal) -> list[Fill]:
         """Feed a replayed/live trade event to the broker.
 
         The broker checks each resting order against the through-trade rule and
@@ -50,7 +50,14 @@ class Broker(Protocol):
         Args:
             price: Execution price of the observed trade (in [0, 1]).
             size:  Number of shares that traded.
+
+        Returns:
+            List of Fill objects produced by this trade event.
         """
+        ...
+
+    def cancel(self, client_id: str) -> None:
+        """Remove a resting order by client_id. No-op if not present."""
         ...
 
     def positions(self) -> list[Position]:

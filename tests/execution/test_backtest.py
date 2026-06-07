@@ -383,3 +383,36 @@ def test_journal_records_order_and_fill(tmp_path: pytest.fixture) -> None:  # ty
     events = [ln["event"] for ln in lines]
     assert "order" in events
     assert "fill" in events
+
+
+def test_cancel_removes_resting_order() -> None:
+    """A cancelled order does not fill on a subsequent through-trade."""
+    b = BacktestBroker(market=_mkt(Category.POLITICS))
+    o = Order(client_id="x", token_id="t", side=Side.BUY, price=Decimal("0.40"),
+              size=Decimal("10"), reason="q", mode="backtest")
+    b.submit(o)
+    b.cancel("x")
+    b.on_trade(price=Decimal("0.30"), size=Decimal("50"))
+    assert b.fills == []
+
+
+def test_cancel_unknown_id_is_noop() -> None:
+    b = BacktestBroker(market=_mkt(Category.POLITICS))
+    b.cancel("nope")  # must not raise
+
+
+def test_on_trade_returns_new_fills() -> None:
+    b = BacktestBroker(market=_mkt(Category.GEOPOLITICS))
+    o = Order(client_id="x", token_id="t", side=Side.BUY, price=Decimal("0.40"),
+              size=Decimal("10"), reason="q", mode="backtest")
+    b.submit(o)
+    produced = b.on_trade(price=Decimal("0.39"), size=Decimal("50"))
+    assert len(produced) == 1 and produced[0].order_id == "x"
+
+
+def test_on_trade_returns_empty_when_no_fill() -> None:
+    b = BacktestBroker(market=_mkt(Category.POLITICS))
+    o = Order(client_id="x", token_id="t", side=Side.BUY, price=Decimal("0.40"),
+              size=Decimal("10"), reason="q", mode="backtest")
+    b.submit(o)
+    assert b.on_trade(price=Decimal("0.41"), size=Decimal("50")) == []

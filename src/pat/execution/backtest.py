@@ -101,7 +101,13 @@ class BacktestBroker:
                 mode=order.mode,
             )
 
-    def on_trade(self, price: Decimal, size: Decimal) -> None:
+    def cancel(self, client_id: str) -> None:
+        """Remove a resting order by client_id (no-op if absent)."""
+        self._book = [r for r in self._book if r.order.client_id != client_id]
+        if self._journal is not None:
+            self._journal.record(event="cancel", client_id=client_id, mode="backtest")
+
+    def on_trade(self, price: Decimal, size: Decimal) -> list[Fill]:
         """Feed a trade event and match against resting orders.
 
         Conservative through-trade rule:
@@ -114,9 +120,13 @@ class BacktestBroker:
         Args:
             price: The price at which the observed market trade executed.
             size:  The number of shares that traded.
+
+        Returns:
+            List of Fill objects produced by this trade event.
         """
         trade_remaining = size
         fully_filled_indices: list[int] = []
+        new_fills: list[Fill] = []
 
         for idx, resting in enumerate(self._book):
             if trade_remaining <= Decimal("0"):
@@ -145,6 +155,7 @@ class BacktestBroker:
                 ts=self._ts,
             )
             self.fills.append(fill)
+            new_fills.append(fill)
 
             if self._journal is not None:
                 self._journal.record(
@@ -168,6 +179,8 @@ class BacktestBroker:
         # Remove fully-filled orders in reverse index order to keep earlier indices valid.
         for idx in reversed(fully_filled_indices):
             del self._book[idx]
+
+        return new_fills
 
     def positions(self) -> list[Position]:
         """Aggregate net positions per token_id from all fills.
