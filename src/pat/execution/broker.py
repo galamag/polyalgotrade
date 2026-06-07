@@ -33,6 +33,9 @@ class Broker(Protocol):
     implementation-defined.
     """
 
+    fills: list[Fill]
+    """Accumulated fills for backtest/paper backends; live backends may leave empty."""
+
     def submit(self, order: Order) -> None:
         """Accept and record a limit order.
 
