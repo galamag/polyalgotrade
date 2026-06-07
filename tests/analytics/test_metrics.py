@@ -148,3 +148,55 @@ def test_decimal_string_inputs_accepted() -> None:
     assert r.gross_pnl == Decimal("2.00")
     assert r.net_pnl == Decimal("1.90")
     assert r.fee_drag == Decimal("0.10")
+
+
+# ---------------------------------------------------------------------------
+# Inventory mark-to-market (ADR 0012)
+# ---------------------------------------------------------------------------
+
+
+def test_long_inventory_marked_at_last_minus_haircut() -> None:
+    """Open long valued at net_size*mark - |net_size|*haircut, added to net_pnl."""
+    fills = [{"side": "buy", "price": "0.40", "size": "10", "fee": "0.00", "token_id": "t"}]
+    r = summarize(fills, marks={"t": Decimal("0.50")}, inventory_haircut=Decimal("0.01"))
+    # gross (realized) = -4.00 ; inventory_value = 10*0.50 - 10*0.01 = 4.90
+    # net = gross + inventory_value - fee = -4.00 + 4.90 - 0.00 = 0.90
+    assert r.inventory_value == Decimal("4.90")
+    assert r.net_pnl == Decimal("0.90")
+
+
+def test_short_inventory_marked() -> None:
+    """Open short is a liability: net_size negative; closing costs the haircut too."""
+    fills = [{"side": "sell", "price": "0.60", "size": "10", "fee": "0.00", "token_id": "t"}]
+    r = summarize(fills, marks={"t": Decimal("0.50")}, inventory_haircut=Decimal("0.01"))
+    # gross = +6.00 ; inventory_value = -10*0.50 - 10*0.01 = -5.10 ; net = 6.00 - 5.10 = 0.90
+    assert r.inventory_value == Decimal("-5.10")
+    assert r.net_pnl == Decimal("0.90")
+
+
+def test_balanced_inventory_has_zero_value() -> None:
+    """A flat book (net 0) contributes no inventory value."""
+    fills = [
+        {"side": "buy", "price": "0.40", "size": "10", "fee": "0.00", "token_id": "t"},
+        {"side": "sell", "price": "0.50", "size": "10", "fee": "0.00", "token_id": "t"},
+    ]
+    r = summarize(fills, marks={"t": Decimal("0.45")}, inventory_haircut=Decimal("0.01"))
+    assert r.inventory_value == Decimal("0")
+    assert r.net_pnl == Decimal("1.00")  # realized only
+
+
+def test_no_marks_is_realized_only_and_backward_compatible() -> None:
+    """Without marks, inventory_value is 0 and net_pnl is the legacy realized number."""
+    fills = [{"side": "buy", "price": "0.40", "size": "10", "fee": "0.02"}]
+    r = summarize(fills)
+    assert r.inventory_value == Decimal("0")
+    assert r.net_pnl == Decimal("-4.02")
+
+
+def test_marks_without_token_id_raises() -> None:
+    """If marks are supplied, every fill must carry token_id."""
+    import pytest
+
+    fills = [{"side": "buy", "price": "0.40", "size": "10", "fee": "0.00"}]
+    with pytest.raises(ValueError, match="token_id"):
+        summarize(fills, marks={"t": Decimal("0.50")})

@@ -10,7 +10,11 @@ Produces a ``Result`` dataclass from a list of fill dicts, then lets
 Gates are checked in that order; the first failure determines the reason string.
 
 HONESTY RULE (fee audit H4):
-  net_pnl = gross_pnl - fee_drag
+  net_pnl = gross_pnl + inventory_value − fee_drag
+  Residual open inventory is marked at the last trade price minus a liquidation
+  haircut (cost of crossing to flatten); see ``_inventory_value``.  Sharpe and
+  drawdown remain realized-only — a documented limitation: terminal MtM is a
+  point estimate, not a per-fill series.
   No maker-rebate income is included.  Rebates are a daily-batch credit with a
   $1/day gate, to be modelled separately in a later phase.  Including them here
   would make backtests lie about net EV.
@@ -79,6 +83,7 @@ class Result:
     max_drawdown: Decimal   # peak-to-trough, always >= 0
     n_trades: int
     sharpe: float
+    inventory_value: Decimal = Decimal("0")  # mark-to-market of residual open inventory
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +91,11 @@ class Result:
 # ---------------------------------------------------------------------------
 
 
-def summarize(fills: list[dict[str, Any]]) -> Result:
+def summarize(
+    fills: list[dict[str, Any]],
+    marks: dict[str, Decimal] | None = None,
+    inventory_haircut: Decimal = Decimal("0"),
+) -> Result:
     """Compute aggregate metrics from a list of fill dicts.
 
     Each fill dict must have:
@@ -113,6 +122,7 @@ def summarize(fills: list[dict[str, Any]]) -> Result:
             max_drawdown=Decimal("0"),
             n_trades=0,
             sharpe=0.0,
+            inventory_value=Decimal("0"),
         )
 
     gross_pnl = Decimal("0")
@@ -141,7 +151,12 @@ def summarize(fills: list[dict[str, Any]]) -> Result:
         # Per-fill net contribution: cash flow minus this fill's own fee
         per_fill_net.append(cash_flow - fee)
 
-    net_pnl = gross_pnl - fee_drag
+    inventory_value = (
+        _inventory_value(fills, marks, inventory_haircut)
+        if marks is not None
+        else Decimal("0")
+    )
+    net_pnl = gross_pnl + inventory_value - fee_drag
 
     # win_rate: fraction of fills with strictly positive net contribution
     n_positive = sum(1 for c in per_fill_net if c > Decimal("0"))
@@ -162,6 +177,7 @@ def summarize(fills: list[dict[str, Any]]) -> Result:
         max_drawdown=max_drawdown,
         n_trades=n_trades,
         sharpe=sharpe,
+        inventory_value=inventory_value,
     )
 
 
@@ -240,6 +256,39 @@ class Verdict:
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+
+def _inventory_value(
+    fills: list[dict[str, Any]],
+    marks: dict[str, Decimal],
+    haircut: Decimal,
+) -> Decimal:
+    """Mark-to-market of residual open inventory per token.
+
+    value = Σ_token [ net_size * mark − |net_size| * haircut ]
+    where net_size = Σ(+size for buy, −size for sell).  The haircut is the cost
+    of crossing the spread to flatten; it always reduces value (long or short).
+    """
+    inv: dict[str, Decimal] = {}
+    for fill in fills:
+        token = fill.get("token_id")
+        if token is None:
+            msg = "inventory mark-to-market requires 'token_id' on every fill"
+            raise ValueError(msg)
+        size = Decimal(str(fill["size"]))
+        signed = size if fill["side"] == "buy" else -size
+        inv[token] = inv.get(token, Decimal("0")) + signed
+
+    total = Decimal("0")
+    for token, net in inv.items():
+        if net == Decimal("0"):
+            continue
+        mark = marks.get(token)
+        if mark is None:
+            msg = f"no mark price supplied for token {token!r}"
+            raise ValueError(msg)
+        total += net * mark - abs(net) * haircut
+    return total
 
 
 def _compute_max_drawdown(per_fill_net: list[Decimal]) -> Decimal:
