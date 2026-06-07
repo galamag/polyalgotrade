@@ -4,8 +4,11 @@ The spine of the project. Each phase has a **gate**; we do not advance until it 
 Real money appears only at Phase 5, and only for strategies with a confirmed positive,
 fee-adjusted edge.
 
-**Current position: Phase 0 COMPLETE (gate passed 2026-06-07) → Phase 1 ready.**
-See [`research/phase0-verdict.md`](research/phase0-verdict.md).
+**Current position: Phase 0 ✅ + Phase 1 core ✅ (gates passed 2026-06-07) → Phase 2 in progress.**
+Phase-2 strategy catalog + verification order **approved**; market making (B1) in design.
+See [`research/phase0-verdict.md`](research/phase0-verdict.md),
+[`superpowers/specs/2026-06-07-phase2-strategy-catalog-design.md`](superpowers/specs/2026-06-07-phase2-strategy-catalog-design.md),
+ADR [0013](decisions/0013-phase2-strategy-catalog.md) / [0014](decisions/0014-orderbook-data-and-informed-crossvenue-mm.md).
 
 ---
 
@@ -29,8 +32,16 @@ See [`research/phase0-verdict.md`](research/phase0-verdict.md).
   Real-data verdict pending Phase 2 (data layer + strategy needed for live Sharpe/EV gate).
 
 ## Phase 2 — Market making (first wave)
+> Full strategy **catalog** (risk-free → risky, all ~9 candidates) and the fixed verification
+> order live in [`superpowers/specs/2026-06-07-phase2-strategy-catalog-design.md`](superpowers/specs/2026-06-07-phase2-strategy-catalog-design.md)
+> and ADR [0013](decisions/0013-phase2-strategy-catalog.md). Market making (B1) is verified first.
+- [ ] **Prerequisites (ADR [0012](decisions/0012-phase1-analytics-limitations.md)) before any real MM verdict:**
+      inventory mark-to-market in `analytics/metrics.py`; parser uses `assetId=="0"` for the USDC leg.
 - [ ] `strategies/market_maker.py`: quote both sides, fixed spread, capped size.
-- [ ] Backtest on geopolitics (0% taker fee) and long-tail politics (maker rebate).
+- [ ] Backtest on geopolitics (0% taker fee = pure spread) and long-tail politics (maker rebate).
+      Backtest fidelity is capped by the **through-trade proxy** — no historical Polymarket book
+      exists (ADR [0014](decisions/0014-orderbook-data-and-informed-crossvenue-mm.md)); real
+      validation is paper (Phase 3). Build a **`live book recorder`** early to feed paper + future backtests.
 - **Gate:** verdict — **EV > 0 after fees** and **Sharpe > 1.0**? If no → iterate or trash.
 
 ## Phase 3 — Paper trading
@@ -39,8 +50,10 @@ See [`research/phase0-verdict.md`](research/phase0-verdict.md).
 - **Gate:** paper PnL ≈ backtest PnL (deviation < 10%); no recurring technical errors.
 
 ## Phase 4 — Remaining strategies (one at a time, same pipeline)
-Order: **cross-market / combinatorial → copy-trading → latency-arb (verify, don't bury) →
-news (intelligence layer activates)**. Each gets its own `strategies/<name>.md` verdict.
+Authoritative order = the Phase-2 **catalog** (ADR [0013](decisions/0013-phase2-strategy-catalog.md)):
+after MM (B1/B2) → **copy-trading → combinatorial arb → UMA-dispute reversion → cross-venue
+(Kalshi) → informed cross-venue crypto MM → latency-arb (verify, don't bury) → news (intelligence
+layer activates)**. Each gets its own `strategies/<name>.md` verdict.
 - **Gate (per strategy):** its own EV/Sharpe verdict before paper.
 
 ## Phase 5 — Small real capital ($50)

@@ -41,6 +41,7 @@ unblocked**, with the corrections noted.
 | I5 | 15-min/1-hr crypto auto-settle via Chainlink | **PARTIAL** | ✅ two-tier: **Chainlink** resolves short crypto (no UMA dispute); **UMA** for the rest. Adapter addr not in docs — trace on-chain when needed | Polymarket↔Chainlink partnership PR; docs.polymarket.com/concepts/resolution |
 | I6 | Polymarket KYC optional ≤7-figure | **VERIFIED** | ✅ User (KZ): site opens no-VPN, **no KYC** at deposit; account is **email/Gmail embedded wallet** (not MetaMask) — see ADR 0011 | user test 2026-06-07 |
 | I7 | Polygon base fee ≥25 gwei; tx ≈ $0.0024 | **PARTIAL** | ✅ gas negligible (~$0.002–0.005); ❌ no confirmed 25-gwei floor — fetch gas live | polygonscan.com/gastracker |
+| I8 | V2 `OrderFilled` event carries maker/taker **addresses** (would enable C1 copy-trading attribution) | **PENDING** (Phase 2) | Surfaced in Phase-2 brainstorm; parser/fixture currently have **no** address field. Verify the on-chain `OrderFilled` ABI on Polygonscan before scheduling C1 | polygonscan.com — CTF Exchange `0xE111…996B` event ABI |
 
 ## Low-trust / measure-ourselves
 
