@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from pat.core.types import Category
 from pat.costs.polymarket import MAKER_REBATE_RATE, polymarket_maker_fee, polymarket_taker_fee
 
@@ -22,9 +24,36 @@ def test_maker_is_always_free():
     assert polymarket_maker_fee(Category.CRYPTO, Decimal("0.5"), Decimal("100")) == Decimal("0")
 
 
-def test_min_fee_floor_for_tiny_nonzero():
-    f = polymarket_taker_fee(Category.SPORTS, Decimal("0.001"), Decimal("1"))
-    assert f >= Decimal("0.00001")
+def test_tiny_fee_truncates_to_zero():
+    # 0.03 * 0.0001 * 0.9999 ≈ 0.0000029997 -> rounds to 0.00000
+    assert polymarket_taker_fee(Category.SPORTS, Decimal("0.0001"), Decimal("1")) == Decimal("0")
+
+
+def test_out_of_range_price_raises():
+    with pytest.raises(ValueError):
+        polymarket_taker_fee(Category.CRYPTO, Decimal("-0.1"), Decimal("100"))
+    with pytest.raises(ValueError):
+        polymarket_taker_fee(Category.CRYPTO, Decimal("1.1"), Decimal("100"))
+
+
+def test_negative_shares_raises():
+    with pytest.raises(ValueError):
+        polymarket_taker_fee(Category.CRYPTO, Decimal("0.5"), Decimal("-100"))
+
+
+def test_price_at_bounds_is_zero():
+    assert polymarket_taker_fee(Category.CRYPTO, Decimal("0"), Decimal("100")) == Decimal("0")
+    assert polymarket_taker_fee(Category.CRYPTO, Decimal("1"), Decimal("100")) == Decimal("0")
+
+
+def test_economics_rate_is_5pct():
+    fee = polymarket_taker_fee(Category.ECONOMICS, Decimal("0.5"), Decimal("1"))
+    assert fee == Decimal("0.01250")
+
+
+def test_crypto_100_share_peak_is_1_75():
+    fee = polymarket_taker_fee(Category.CRYPTO, Decimal("0.5"), Decimal("100"))
+    assert fee == Decimal("1.75000")
 
 
 def test_geopolitics_rebate_rate_is_zero():

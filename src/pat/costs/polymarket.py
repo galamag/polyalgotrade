@@ -48,23 +48,26 @@ def polymarket_taker_fee(category: Category, price: Decimal, shares: Decimal) ->
     """Compute the taker fee for a Polymarket order.
 
     Formula: fee = shares * rate * price * (1 - price), rounded to 5 dp.
-    A minimum floor of 0.00001 applies whenever the raw fee is strictly positive
-    but rounds to zero — prevents tiny orders from appearing free.
+    The smallest charged fee is 0.00001 USDC; anything smaller rounds to zero.
 
     Args:
         category: Market category (determines rate).
         price:    Execution price in [0, 1].
-        shares:   Number of shares (outcome tokens).
+        shares:   Number of shares (outcome tokens); must be >= 0.
 
     Returns:
         Fee in USDC, as Decimal with 5 decimal places.
+
+    Raises:
+        ValueError: If price is outside [0, 1] or shares is negative.
     """
+    if not (Decimal("0") <= price <= Decimal("1")):
+        raise ValueError(f"price must be in [0,1], got {price}")
+    if shares < 0:
+        raise ValueError(f"shares must be >= 0, got {shares}")
     rate = TAKER_RATE[category]
     raw = shares * rate * price * (Decimal("1") - price)
-    fee = raw.quantize(_FIVE_DP, rounding=ROUND_HALF_UP)
-    if raw > 0 and fee < _FIVE_DP:
-        return _FIVE_DP
-    return fee
+    return raw.quantize(_FIVE_DP, rounding=ROUND_HALF_UP)
 
 
 def polymarket_maker_fee(category: Category, price: Decimal, shares: Decimal) -> Decimal:  # noqa: ARG001
