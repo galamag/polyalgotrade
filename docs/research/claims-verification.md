@@ -97,7 +97,12 @@ unblocked**, with the corrections noted.
   (the 1.56–1.80% range is wrong — never hard-code it; derive from the formula).
 - **Category feeRate table (official):** Crypto 0.07 · Sports 0.03 · Finance 0.04 ·
   Politics 0.04 · Economics 0.05 · Culture 0.05 · Weather 0.05 · Tech 0.04 · Mentions 0.04 ·
-  Other 0.05 · **Geopolitics 0.0**. Makers never charged. Rounded to 5 dp, min 0.00001.
+  Other 0.05 · **Geopolitics 0.0**. Makers never charged. Rounded to 5 dp — smallest charged fee
+  0.00001; smaller rounds to **zero** (corrected per Task-2 audit).
+- ⚠️ **Source conflict (recheck before live):** dev-docs (5 dp, full 11-category table) vs
+  help-center (4 dp; fees "rolled out sports-only effective ~2026-03-30", others listed as
+  "future"). Confirm which categories are actually fee-live and 5dp-vs-4dp against the real
+  Phase-2 data window before trusting non-sports fees.
 
 ### C6 — Geopolitics 0% (VERIFIED)
 - Official: "Geopolitical and world events markets are fee-free." **Nuance:** the maker-rebate

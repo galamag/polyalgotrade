@@ -10,8 +10,9 @@ anywhere else. Owned/audited by the `fee-cost-auditor` subagent.
 
 ## What the model must account for
 
-1. **Polymarket taker fee.** `fee = shares · feeRate · p · (1−p)`, rounded to 5 dp, min
-   0.00001. **Per-category `feeRate`** (config table): Crypto 0.07 · Sports 0.03 · Finance 0.04
+1. **Polymarket taker fee.** `fee = shares · feeRate · p · (1−p)`, rounded to 5 dp (smallest
+   charged fee 0.00001; anything smaller rounds to **zero**). Domain-guarded: price∈[0,1],
+   shares≥0 (a negative fee would be a fake credit). **Per-category `feeRate`** (config table): Crypto 0.07 · Sports 0.03 · Finance 0.04
    · Politics 0.04 · Economics 0.05 · Culture 0.05 · Weather 0.05 · Tech 0.04 · Mentions 0.04 ·
    Other 0.05 · **Geopolitics 0.0**. Crypto peak is **exactly 1.75%** at p=0.5 — derive from
    the formula, never hard-code the peak. **Makers are never charged.**

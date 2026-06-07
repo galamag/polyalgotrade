@@ -11,7 +11,9 @@ ways that would silently bias backtests.
 
 ## Decision — `src/pat/costs/` must encode these verified facts
 
-**Polymarket taker fee:** `fee = shares · feeRate · p · (1−p)`, rounded to 5 dp, min 0.00001.
+**Polymarket taker fee:** `fee = shares · feeRate · p · (1−p)`, rounded to 5 dp (smallest
+charged fee 0.00001; **anything smaller rounds to zero** — corrected per the Task-2 fee audit;
+the earlier "min 0.00001 floor" was wrong). Domain-guarded (price∈[0,1], shares≥0).
 - Per-category `feeRate` (config table, never hard-coded peaks):
   Crypto 0.07 · Sports 0.03 · Finance 0.04 · Politics 0.04 · Economics 0.05 · Culture 0.05 ·
   Weather 0.05 · Tech 0.04 · Mentions 0.04 · Other 0.05 · **Geopolitics 0.0**.
