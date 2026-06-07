@@ -25,8 +25,11 @@ anywhere else. Owned/audited by the `fee-cost-auditor` subagent.
    fee = 0.0175** (25% of taker), also ceil-rounded — **not $0**. Per-series `fee_multiplier`
    can override 0.07.
 5. **Gas.** Polygon tx ≈ $0.0024 (claim I7) — negligible but logged, never ignored.
-6. **On/off-ramp.** USDC↔Binance↔P2P ≈ 1–2% (claim P2); MoonPay debit 2–3% (avoid). Applied
-   at the bankroll level, not per trade, but tracked.
+6. **On/off-ramp (verified 2026-06-07).** Cheapest route: **Freedom Bank → Binance KZ** (USDT
+   ~1:1, **~free** via direct bank gateway) → on-chain transfer to/from Polymarket; the only real
+   cost is the **crypto transfer/withdrawal fee** (small). Card/Apple-Pay deposit to Polymarket ≈
+   **2.18%** ($2.16 processing + $0.02 network per $100) — **avoid for funding**. Withdrawal is
+   crypto-only. Tracked at bankroll level, not per trade.
 7. **Slippage** — not a fee, but modeled alongside (see broker fill model).
 
 ## Interface (illustrative)

@@ -48,12 +48,17 @@ caught several specifics that would have caused bugs — exactly the point of Ph
 - **I6 → PARTIAL (resolved):** no KYC on the main platform (wallet + geo-IP); "7-figure" was
   fiction. Recheck before Phase 5.
 
-## Still open (do NOT block Phase 1 — for the user, before Phase 5 funding)
-- **I6-experiential** — actually test access/onboarding **from Kazakhstan** (geo-IP, any deposit
-  gate). Bots are geo/login-walled — user task.
-- **P1** — confirm KZ crypto-income tax (10% IIT) from a local/official source.
-- **P2** — confirm a real off-ramp (USDC→Binance→P2P KZT) spread/limits via the user's Binance.
-- **L1** — VPS→CLOB latency: measure from a real VPS (deferred to VPS setup).
+## User-verified 2026-06-07 (KZ)
+- **I6 → VERIFIED:** KZ access works without VPN; no KYC at deposit. Account is an **email/Gmail
+  embedded wallet** (not MetaMask) → programmatic signing needs a dedicated EOA (**ADR 0011**).
+- **P1 → VERIFIED:** 10% ИПН, declared as property income.
+- **P2 → VERIFIED (better than research):** Freedom Bank↔Binance KZ gateway, USDT ~1:1, ~free
+  both ways; real cost is only the on-chain transfer fee. Card deposit ≈ 2.18% — avoid.
+
+## Genuinely still open (none block Phase 1)
+- **Wallet/signing (ADR 0011)** — settle EOA-vs-embedded signing in the venue adapter — **Phase 3**.
+- **L1** — VPS→CLOB latency: measure from a real VPS — **deferred to VPS setup**.
+- **I5 on-chain** — Chainlink adapter address for a resolution monitor — **only when that feature is built**.
 
 ## Decisions written
 ADR 0007 (V2 on-chain facts), 0008 (SDK = polymarket-client), 0009 (fee-model corrections).

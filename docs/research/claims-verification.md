@@ -39,7 +39,7 @@ unblocked**, with the corrections noted.
 | I3 | `warproxxx/poly_data` reads OrderFilled from V2 via RPC+Gamma | **VERIFIED** | ✅ exists; targets `0xE111…996B`; Gamma keyset; off Goldsky; use paid RPC | github.com/warproxxx/poly_data |
 | I4 | Kalshi `demo-api.kalshi.com` full sandbox | **PARTIAL** | ✅ fake-money sandbox; ❌ host is **`.co`**: `external-api.demo.kalshi.co/trade-api/v2` | docs.kalshi.com/getting_started/demo_env |
 | I5 | 15-min/1-hr crypto auto-settle via Chainlink | **PARTIAL** | ✅ two-tier: **Chainlink** resolves short crypto (no UMA dispute); **UMA** for the rest. Adapter addr not in docs — trace on-chain when needed | Polymarket↔Chainlink partnership PR; docs.polymarket.com/concepts/resolution |
-| I6 | Polymarket KYC optional ≤7-figure | **PARTIAL** | ✅ no KYC on main platform (wallet + geo-IP); ❌ "7-figure" threshold unverified — drop. Perps beta needs KYC. Recheck pre-Phase-5 | Polymarket official statement 2026-05-27 |
+| I6 | Polymarket KYC optional ≤7-figure | **VERIFIED** | ✅ User (KZ): site opens no-VPN, **no KYC** at deposit; account is **email/Gmail embedded wallet** (not MetaMask) — see ADR 0011 | user test 2026-06-07 |
 | I7 | Polygon base fee ≥25 gwei; tx ≈ $0.0024 | **PARTIAL** | ✅ gas negligible (~$0.002–0.005); ❌ no confirmed 25-gwei floor — fetch gas live | polygonscan.com/gastracker |
 
 ## Low-trust / measure-ourselves
@@ -54,8 +54,8 @@ unblocked**, with the corrections noted.
 
 | # | Claim | Status | Note |
 |---|---|---|---|
-| P1 | KZ crypto income taxable 10% IIT | **PENDING** | Confirm current rate; keep fill records |
-| P2 | Off-ramp USDC→Binance→P2P ~1–2% | **PENDING** | Confirm a working route before Phase 5 |
+| P1 | KZ crypto income taxable 10% IIT | **VERIFIED** | User (resident): 10% ИПН, declared as **property income** (имущественный доход); crypto not eligible for simplified regime. Keep fill records |
+| P2 | Off-ramp USDC→Binance→P2P ~1–2% | **VERIFIED** | ✅ Better: **Freedom Bank↔Binance KZ** direct gateway, USDT ~1:1 (~485 KZT), **no fee** both ways; only real cost = on-chain transfer fee |
 
 ---
 
@@ -157,6 +157,18 @@ unblocked**, with the corrections noted.
 ### I7 — gas (PARTIAL)
 - Negligible (~$0.002–0.005/tx) confirmed; the 25-gwei "floor" is unconfirmed (current base fee
   ~250 gwei anyway). **Fetch gas live** (`eth_feeHistory`), don't hard-code a floor.
+
+### User onboarding facts (KZ, verified by the user 2026-06-07)
+- **Access:** `polymarket.com` opens from KZ **without VPN**; **no KYC** prompt at the deposit
+  button (not pursued further — re-check the full flow before funding).
+- **Wallet:** account created via **Gmail/email → embedded Polymarket wallet** (NOT MetaMask/EOA).
+  ⚠️ Programmatic order signing needs an EOA key (or an exportable embedded key) — see **ADR 0011**.
+  Funding methods available: crypto transfer (deposit + withdraw) or **card deposit** (withdraw
+  is crypto-only).
+- **On-ramp cost:** card/Apple-Pay ≈ **2.18%** ($2.16 processing + $0.02 network per $100) →
+  **avoid for funding**. Cheapest route: **Freedom Bank → Binance KZ** (USDT ~1:1, ~free) →
+  on-chain transfer → Polymarket. Dominant cost = the crypto transfer/withdrawal fee.
+- **Tax:** 10% ИПН, declared as property income.
 
 ---
 
