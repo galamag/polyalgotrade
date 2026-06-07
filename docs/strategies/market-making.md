@@ -1,6 +1,8 @@
 # Strategy: Market Making (first wave)
 
-- **Status:** Design approved (v1, 2026-06-07) — implementation next. Full design: spec
+- **Status:** Backtest pipeline **built & tested offline** (v1, 2026-06-07; branch
+  `phase-2-market-making`, 104 tests green). Real-data EV/Sharpe verdict is **pending (Phase 2b,
+  RPC-gated)**. Full design: spec
   `docs/superpowers/specs/2026-06-07-phase2-strategy-catalog-design.md` Section 2.
 - **Roadmap phase:** 2
 - **Owner subagent:** quant-researcher (+ fee-cost-auditor, risk-manager)
@@ -61,9 +63,18 @@ the spread and, where applicable, maker rebates — while paying little/no taker
 ## 7. Results
 | Run | Window | Trades | Net PnL | Sharpe | Win% | Max DD | Notes |
 |---|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — | pending Phase 2 |
+| — | — | — | — | — | — | — | pending Phase 2b (real-data run, RPC-gated) |
 
 ## 8. Verdict
 - [ ] EV > 0 after fees?  [ ] Sharpe > 1.0?  [ ] Survives pessimistic fills?
-- **Decision:** pending. If yes → paper (Phase 3). If no after iteration → trash, pivot per the
-  roadmap triggers.
+- **Verdict-writing caveats (from the Phase-2 final review — read before filling this in):**
+  1. `Sharpe` here is a **per-fill** statistic (mean/stdev of per-fill net contributions) for
+     *relative ranking* across the sweep — **not annualized**; do not present it as a conventional
+     Sharpe.
+  2. `win_rate` is a fill-level stat (buy fills are negative at fill time), so a balanced two-sided
+     MM sits near 50% by construction — **not edge evidence**; lean on net PnL (incl. inventory MtM).
+  3. Sharpe/drawdown are **realized-only** and ignore the terminal inventory mark — a config ending
+     with heavy residual inventory can show +net EV but a realized-only Sharpe; weigh both.
+  4. Fills are a **lower bound** (through-trade proxy, no order book) — real proof is paper (Phase 3).
+- **Decision:** pending (Phase 2b real-data run). If yes → paper (Phase 3). If no after iteration →
+  trash, pivot per the roadmap triggers.
