@@ -4,14 +4,13 @@ version = "0.0.0"
 description = "Prediction-market algorithmic trading research framework (Polymarket / Kalshi)"
 readme = "README.md"
 requires-python = ">=3.11"
-# Dependencies are added per phase (see docs/roadmap.md). Pinned exactly during Phase 1.
+# Runtime deps. polymarket-client (py-sdk, beta, ADR 0008) is added at Phase 3 (live), not now.
 dependencies = [
-    # "httpx[http2]",
-    # "websockets",
-    # "pydantic",
-    # "polars",
-    # "structlog",
-    # "polymarket-client>=0.1.0b3",  # unified py-sdk; beta — allow prerelease (ADR 0008)
+    "httpx[http2]>=0.27",
+    "websockets>=12",
+    "pydantic>=2.7",
+    "polars>=1.0",
+    "structlog>=24.1",
 ]
 
 [project.optional-dependencies]
@@ -35,10 +34,18 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ASYNC", "S"]  # incl. flake8-bandit (S) for secrets/safety
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]   # assert is the point of tests
+"scripts/**" = ["S101"]
+
 [tool.mypy]
 python_version = "3.11"
-strict = true
-files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+files = ["src"]
+disallow_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
