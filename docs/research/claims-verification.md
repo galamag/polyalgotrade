@@ -38,8 +38,8 @@ unblocked**, with the corrections noted.
 | I2 | Rate limits 120k/10min; 2000/10s | **PARTIAL** | ✅ confirmed + extra tiers (burst 5000/10s; batch 21000/10min); Cloudflare queues | docs.polymarket.com/api-reference/rate-limits |
 | I3 | `warproxxx/poly_data` reads OrderFilled from V2 via RPC+Gamma | **VERIFIED** | ✅ exists; targets `0xE111…996B`; Gamma keyset; off Goldsky; use paid RPC | github.com/warproxxx/poly_data |
 | I4 | Kalshi `demo-api.kalshi.com` full sandbox | **PARTIAL** | ✅ fake-money sandbox; ❌ host is **`.co`**: `external-api.demo.kalshi.co/trade-api/v2` | docs.kalshi.com/getting_started/demo_env |
-| I5 | 15-min/1-hr crypto auto-settle via Chainlink | **CANNOT_CONFIRM** | Docs describe only **UMA** OO (2h challenge); Chainlink only as RTDS price feed. Verify on-chain | docs.polymarket.com/concepts/resolution |
-| I6 | Polymarket KYC optional ≤7-figure | **PENDING** | Not yet verified — affects KZ onboarding; verify before paper→live | — |
+| I5 | 15-min/1-hr crypto auto-settle via Chainlink | **PARTIAL** | ✅ two-tier: **Chainlink** resolves short crypto (no UMA dispute); **UMA** for the rest. Adapter addr not in docs — trace on-chain when needed | Polymarket↔Chainlink partnership PR; docs.polymarket.com/concepts/resolution |
+| I6 | Polymarket KYC optional ≤7-figure | **PARTIAL** | ✅ no KYC on main platform (wallet + geo-IP); ❌ "7-figure" threshold unverified — drop. Perps beta needs KYC. Recheck pre-Phase-5 | Polymarket official statement 2026-05-27 |
 | I7 | Polygon base fee ≥25 gwei; tx ≈ $0.0024 | **PARTIAL** | ✅ gas negligible (~$0.002–0.005); ❌ no confirmed 25-gwei floor — fetch gas live | polygonscan.com/gastracker |
 
 ## Low-trust / measure-ourselves
@@ -133,11 +133,26 @@ unblocked**, with the corrections noted.
   `https://demo-api.kalshi.co/trade-api/v2` (legacy); WS `wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2`.
   Separate demo account/creds. (`.co`, not `.com`.)
 
-### I5 — Chainlink auto-settle (CANNOT_CONFIRM) ⚠️
-- Resolution docs describe **only UMA** Optimistic Oracle (propose → 2h challenge → dispute →
-  token vote). Chainlink appears only as an RTDS price feed, not as a settlement mechanism.
-- **Do not build resolution-timing / sniping logic on this.** Phase-1 task: on-chain check —
-  which contract calls `reportPayouts()` for a resolved 15-min crypto market.
+### I5 — Crypto-market resolution (PARTIAL → research was right: two-tier oracle)
+- **Two-tier:** short-dated crypto price markets (5-min/15-min/1-hr/4-hr) resolve via
+  **Chainlink Data Streams + Automation** (on-chain, near-instant, **no UMA dispute window**);
+  **all other markets** (politics, geopolitics, sports, …) resolve via **UMA Optimistic Oracle**
+  (propose → 2h challenge → dispute → token vote). Confirmed by the official Polymarket↔Chainlink
+  partnership announcement + the live 15M crypto category; the official contracts page lists only
+  the UMA adapter/oracle, not the Chainlink resolver.
+- **Design impact:** the "sell winners $0.95+, don't hold to $1.00 (UMA risk)" rule applies
+  **only to UMA markets**, NOT to short-dated crypto (no dispute risk there). See ADR 0010.
+- **Open (deferred, not Phase 1):** the Chainlink adapter address isn't in the docs — trace it
+  on-chain (ConditionalTokens `0x4D97DCd97eC945f40cF65F87097ACe5EA0476045` `ConditionResolution`
+  caller for a resolved 15-min market) when we build a resolution monitor.
+
+### I6 — KYC (PARTIAL)
+- Documented policy: **no KYC on the main platform** — wallet connect + geo-IP check only (per
+  Polymarket's official 2026-05-27 statement). Perps (leveraged beta) requires KYC for testers.
+  The research's "7-figure threshold" is **unverified** — drop it.
+- **Impact:** no KYC docs to prepare for KZ retail onboarding on the main market. The real gate
+  is the geo-IP check (C9 ✅) — the **user must test actual access from KZ** (bots are geo/login
+  walled). Recheck before Phase 5.
 
 ### I7 — gas (PARTIAL)
 - Negligible (~$0.002–0.005/tx) confirmed; the 25-gwei "floor" is unconfirmed (current base fee

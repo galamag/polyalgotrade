@@ -41,13 +41,19 @@ caught several specifics that would have caused bugs — exactly the point of Ph
   rebate" mental model from the research is wrong for geopolitics — rebates need a non-zero
   taker pool, which geopolitics doesn't have. Re-examine the Phase-2 MM edge thesis with this.
 
-## Open items (do NOT block Phase 1, but track)
-- **I5 (CANNOT_CONFIRM) ⚠️** — crypto-market settlement: docs show **only UMA** (2h challenge),
-  not Chainlink auto-settle. **Phase-1 on-chain task:** find the `reportPayouts()` caller for a
-  resolved 15-min crypto market. **Do not build sniping/timing logic on the Chainlink claim.**
-- **I6 (PENDING)** — Polymarket KYC threshold for KZ onboarding: verify before paper→live.
-- **L1 (PENDING)** — VPS→CLOB latency: measure from a real VPS (deferred to VPS setup).
-- **P1/P2 (PENDING)** — KZ tax rate + off-ramp route: confirm before funding (Phase 5).
+## Loose ends — status after follow-up
+- **I5 → PARTIAL (resolved):** two-tier oracle — **Chainlink** resolves short crypto (no UMA
+  dispute), **UMA** resolves the rest (ADR 0010). On-chain Chainlink adapter address deferred to
+  when we build a resolution monitor (not Phase 1).
+- **I6 → PARTIAL (resolved):** no KYC on the main platform (wallet + geo-IP); "7-figure" was
+  fiction. Recheck before Phase 5.
+
+## Still open (do NOT block Phase 1 — for the user, before Phase 5 funding)
+- **I6-experiential** — actually test access/onboarding **from Kazakhstan** (geo-IP, any deposit
+  gate). Bots are geo/login-walled — user task.
+- **P1** — confirm KZ crypto-income tax (10% IIT) from a local/official source.
+- **P2** — confirm a real off-ramp (USDC→Binance→P2P KZT) spread/limits via the user's Binance.
+- **L1** — VPS→CLOB latency: measure from a real VPS (deferred to VPS setup).
 
 ## Decisions written
 ADR 0007 (V2 on-chain facts), 0008 (SDK = polymarket-client), 0009 (fee-model corrections).
