@@ -9,6 +9,10 @@
 **Language:** the user writes in Russian — reply in Russian by default. Keep code,
 identifiers, and committed docs in English.
 
+**Resuming a session?** Read [`docs/HANDOFF.md`](docs/HANDOFF.md) **first** — the durable,
+git-versioned session handoff (current state + what to read next). Keep it updated and committed
+at each session end.
+
 ---
 
 ## 0. The one rule that overrides everything
