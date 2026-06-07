@@ -3,9 +3,10 @@
 On-chain amounts use 6-decimal fixed point (divide by FILL_SCALE to get human units).
 USDC amounts and share counts are both expressed this way in the raw event.
 
-Price convention (provisional — refined in Task 6 against real data):
-  - The larger leg is shares, the smaller leg is USDC.
-  - price = usdc / shares, clamped to [0, 1].
+Price convention:
+  - The collateral (USDC) leg is authoritatively identified by assetId == "0".
+  - The other leg is shares.  price = usdc / shares.
+  - Falls back to the magnitude heuristic only for rare token/token swaps (neither leg is "0").
 
 This module is a pure transform: no network, no I/O. Feed it decoded event dicts
 (as produced by eth_getLogs + ABI decode, or a pre-saved JSON fixture) and receive
@@ -35,22 +36,26 @@ FILL_SCALE = Decimal("1000000")  # 6-dp fixed-point on-chain amounts
 def _price_and_size(ev: dict[str, object]) -> tuple[Decimal, Decimal]:
     """Return (price, shares) from a raw OrderFilled event dict.
 
-    Both makerAmountFilled and takerAmountFilled are 6-dp fixed-point integers.
-    One leg is USDC, the other is shares.  We identify them by magnitude:
-    the larger value is shares, the smaller is USDC.
-
-    price = usdc / shares  (guaranteed in [0,1] when shares >= usdc >= 0).
+    The collateral (USDC) leg is authoritatively the one with assetId == "0".
+    The other leg is shares.  price = usdc / shares.  If neither leg is
+    collateral (rare token/token swap), fall back to the magnitude heuristic.
     """
-    maker_raw = Decimal(str(ev["makerAmountFilled"])) / FILL_SCALE
-    taker_raw = Decimal(str(ev["takerAmountFilled"])) / FILL_SCALE
+    maker_id = str(ev.get("makerAssetId", ""))
+    taker_id = str(ev.get("takerAssetId", ""))
+    maker_amt = Decimal(str(ev["makerAmountFilled"])) / FILL_SCALE
+    taker_amt = Decimal(str(ev["takerAmountFilled"])) / FILL_SCALE
 
-    # The leg with more units is shares; the leg with fewer units is USDC.
-    # At a price of 0.5 a market costs 0.5 USDC per share, so shares > usdc always
-    # holds when price < 1.  At price == 1 they are equal — pick either as shares.
-    if taker_raw >= maker_raw:
-        shares, usdc = taker_raw, maker_raw
+    if taker_id == "0":
+        usdc, shares = taker_amt, maker_amt
+    elif maker_id == "0":
+        usdc, shares = maker_amt, taker_amt
     else:
-        shares, usdc = maker_raw, taker_raw
+        # Neither leg is USDC collateral — fall back to magnitude (larger = shares).
+        log.warning("orderfilled.no_collateral_leg", maker_id=maker_id, taker_id=taker_id)
+        if taker_amt >= maker_amt:
+            shares, usdc = taker_amt, maker_amt
+        else:
+            shares, usdc = maker_amt, taker_amt
 
     price = (usdc / shares) if shares else Decimal("0")
     return price, shares

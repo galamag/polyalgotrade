@@ -63,3 +63,43 @@ def test_parse_orderfilled_mode_and_ts() -> None:
 def test_parse_orderfilled_empty_list() -> None:
     fills = parse_orderfilled([])
     assert fills == []
+
+
+def test_price_from_taker_collateral_leg() -> None:
+    """takerAssetId=='0' → taker is USDC, maker is shares; price = usdc/shares."""
+    events = [{
+        "makerAssetId": "999", "takerAssetId": "0",
+        "makerAmountFilled": 4_000_000, "takerAmountFilled": 3_600_000,  # 4 shares, 3.6 USDC
+        "fee": 0, "timestamp": 1, "transactionHash": "0xaa",
+    }]
+    f = parse_orderfilled(events)[0]
+    assert f.price == Decimal("0.9") and f.size == Decimal("4")
+
+
+def test_price_from_maker_collateral_leg() -> None:
+    """makerAssetId=='0' → maker is USDC, taker is shares."""
+    events = [{
+        "makerAssetId": "0", "takerAssetId": "888",
+        "makerAmountFilled": 950_000, "takerAmountFilled": 1_000_000,  # 0.95 USDC, 1 share
+        "fee": 0, "timestamp": 1, "transactionHash": "0xbb",
+    }]
+    f = parse_orderfilled(events)[0]
+    assert f.price == Decimal("0.95") and f.size == Decimal("1")
+
+
+def test_usdc_leg_is_authoritative_not_magnitude() -> None:
+    """Corrupt event: USDC leg (maker, assetId 0) has MORE units than the shares leg.
+
+    Correct: USDC=1.5, shares=1.0 → price 1.5 → pydantic rejects (anomaly surfaced).
+    Old heuristic would call the larger (1.5) leg 'shares' → price 0.667, hiding it.
+    """
+    import pytest
+    from pydantic import ValidationError
+
+    events = [{
+        "makerAssetId": "0", "takerAssetId": "888",
+        "makerAmountFilled": 1_500_000, "takerAmountFilled": 1_000_000,  # 1.5 USDC, 1.0 shares
+        "fee": 0, "timestamp": 1, "transactionHash": "0xcc",
+    }]
+    with pytest.raises(ValidationError):
+        parse_orderfilled(events)
