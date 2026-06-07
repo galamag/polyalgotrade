@@ -41,7 +41,8 @@ unblocked**, with the corrections noted.
 | I5 | 15-min/1-hr crypto auto-settle via Chainlink | **PARTIAL** | ✅ two-tier: **Chainlink** resolves short crypto (no UMA dispute); **UMA** for the rest. Adapter addr not in docs — trace on-chain when needed | Polymarket↔Chainlink partnership PR; docs.polymarket.com/concepts/resolution |
 | I6 | Polymarket KYC optional ≤7-figure | **VERIFIED** | ✅ User (KZ): site opens no-VPN, **no KYC** at deposit; account is **email/Gmail embedded wallet** (not MetaMask) — see ADR 0011 | user test 2026-06-07 |
 | I7 | Polygon base fee ≥25 gwei; tx ≈ $0.0024 | **PARTIAL** | ✅ gas negligible (~$0.002–0.005); ❌ no confirmed 25-gwei floor — fetch gas live | polygonscan.com/gastracker |
-| I8 | V2 `OrderFilled` event carries maker/taker **addresses** (would enable C1 copy-trading attribution) | **PENDING** (Phase 2) | Surfaced in Phase-2 brainstorm; parser/fixture currently have **no** address field. Verify the on-chain `OrderFilled` ABI on Polygonscan before scheduling C1 | polygonscan.com — CTF Exchange `0xE111…996B` event ABI |
+| I8 | V2 `OrderFilled` event carries maker/taker **addresses** (would enable C1 copy-trading attribution) | **VERIFIED** | ✅ maker (topic2) + taker (topic3) are indexed addresses. ⚠️ V2 event schema differs from V1: has `side`+`tokenId` (NOT `makerAssetId`/`takerAssetId`). Parser needs a raw-log→dict adapter. See ADR 0016. | Polygonscan ABI + GitHub ITrading.sol; live tx 0x5f58d002…c21 on Polygon block 88093791 (2026-06-07) |
+| I9 | Gamma: select geopolitics markets + token_ids; "geopolitics = 0% fee" nuance | **VERIFIED** | ✅ `/events?tag_id=100265` → `markets[].clobTokenIds` (YES/NO). ⚠️ **tag ≠ 0% fee**: select 0%-fee by `feesEnabled=false`/`feeType=null` per market (some geopolitics-tagged markets carry politics_fees 4%). Per-token: `clob.polymarket.com/fee-rate?token_id=`. ~35–40 events. | live gamma-api + clob /fee-rate (2026-06-07); docs gamma-openapi |
 
 ## Low-trust / measure-ourselves
 
@@ -177,6 +178,105 @@ unblocked**, with the corrections noted.
 - **Tax:** 10% ИПН, declared as property income.
 
 ---
+
+### I8 — V2 OrderFilled event ABI (VERIFIED, 2026-06-07)
+
+**Primary sources:**
+- Polygonscan verified ABI for `0xE111180000d2663C0091e4f400237545B87B996B` (CTFExchangeV2)
+- GitHub `Polymarket/ctf-exchange-v2` — `src/exchange/interfaces/ITrading.sol` + `src/exchange/mixins/Events.sol`
+- Live on-chain tx `0x5f58d002310ce745cc80c7bcbc822cd7adce5d6f4a429d67064300715d583c21`, Polygon block 88093791
+- 4byte.directory signature database confirmed topic0 mapping
+
+**Canonical event signature (V2):**
+```
+OrderFilled(bytes32 indexed orderHash, address indexed maker, address indexed taker, uint8 side, uint256 tokenId, uint256 makerAmountFilled, uint256 takerAmountFilled, uint256 fee, bytes32 builder, bytes32 metadata)
+```
+
+**topic0:** `0xd543adfd945773f1a62f74f0ee55a5e3b9b1a28262980ba90b1a89f2ea84d8ee`
+(keccak256 of `OrderFilled(bytes32,address,address,uint8,uint256,uint256,uint256,uint256,bytes32,bytes32)`)
+
+**Raw log structure from `eth_getLogs`:**
+```
+topics[0] = 0xd543adfd...d8ee            (event selector, always)
+topics[1] = bytes32 orderHash            (indexed)
+topics[2] = address maker (left-padded)  (indexed)
+topics[3] = address taker (left-padded)  (indexed)
+data       = ABI-encoded tuple of 7 x 32-byte words:
+  word 0: uint8  side               (0 = BUY, 1 = SELL)
+  word 1: uint256 tokenId           (ERC-1155 position ID — the shares leg)
+  word 2: uint256 makerAmountFilled (6-dp fixed-point USDC or shares)
+  word 3: uint256 takerAmountFilled (6-dp fixed-point shares or USDC)
+  word 4: uint256 fee               (6-dp fixed-point USDC)
+  word 5: bytes32 builder           (builder address hash, usually 0x0)
+  word 6: bytes32 metadata          (order metadata, usually 0x0)
+```
+
+**Decode recipe for raw-log → dict (for our parser):**
+
+```python
+# Given: log = eth_getLogs response object
+order_hash  = log["topics"][1]                              # hex bytes32
+maker_addr  = "0x" + log["topics"][2][-40:]                # strip padding
+taker_addr  = "0x" + log["topics"][3][-40:]                # strip padding
+data_bytes  = bytes.fromhex(log["data"][2:])               # strip 0x
+words       = [int.from_bytes(data_bytes[i:i+32], "big") for i in range(0, 224, 32)]
+side              = words[0]      # 0=BUY, 1=SELL
+token_id          = words[1]      # ERC-1155 position ID (shares token)
+maker_amount      = words[2]      # 6-dp
+taker_amount      = words[3]      # 6-dp
+fee               = words[4]      # 6-dp
+builder           = words[5]      # bytes32 (usually 0)
+metadata          = words[6]      # bytes32 (usually 0)
+```
+
+**V2 vs V1 schema difference (CRITICAL for parser):**
+- V1 (`0x4bFb…982E`) event had: `side` ABSENT, `makerAssetId` (uint256), `takerAssetId` (uint256) — 8 params total
+- V2 (`0xE111…996B`) event has: `side` (uint8), `tokenId` (single uint256) — 10 params total
+- The existing parser (`src/pat/data/polymarket_history.py`) uses `makerAssetId`/`takerAssetId` key names — these are V1 names. The raw-log adapter must translate V2 fields.
+
+**Adapting V2 fields to the current parser's expected dict:**
+
+The parser uses `makerAssetId`/`takerAssetId` to determine which leg is USDC vs shares.
+In V2, `tokenId` is always the **shares token**; USDC (assetId = "0") is implicit.
+Translation rule:
+```
+if side == 0 (BUY):  maker gives USDC,  taker gives shares
+    → makerAssetId = "0",      takerAssetId = str(token_id)
+if side == 1 (SELL): maker gives shares, taker gives USDC
+    → makerAssetId = str(token_id), takerAssetId = "0"
+```
+This maps V2 to the existing parser's collateral-detection logic without changing the parser.
+
+**Timestamp:** `eth_getLogs` returns `blockNumber` (hex), NOT a timestamp.
+- Obtain timestamp via `eth_getBlockByNumber(blockNumber, false)["timestamp"]` (hex → int, Unix epoch **seconds**).
+- The parser expects `timestamp` in epoch milliseconds → multiply by 1000.
+- Cost: Alchemy charges 20 CU per `eth_getBlockByNumber` call.
+- **Optimization:** deduplicate by block number — one call per unique block, not per event.
+  Polygon produces ~1 block every 2s, so a batch of 1000 events typically spans far fewer
+  than 1000 unique blocks.
+
+**I8 resolved:** maker/taker addresses ARE present as indexed topics. Copy-trading attribution
+(C1) is technically feasible via `topics[2]`/`topics[3]` filtering in `eth_getLogs`. See ADR 0016.
+
+---
+
+### I9 — Gamma geopolitics market selection (VERIFIED, 2026-06-07)
+
+**Sources:** live `gamma-api.polymarket.com/events?tag_id=100265`; `clob.polymarket.com/fee-rate?token_id=<id>` → `base_fee` bps; docs.polymarket.com gamma-openapi.
+
+- **Recipe:** `GET /events?tag_id=100265&limit=500[&offset=]` (geopolitics tag id `100265`). Each
+  `events[].markets[]` carries `clobTokenIds: [YES_id, NO_id]` — the ERC-1155 token_ids that appear
+  in `OrderFilled`. ~35–40 events total (live + historical; `closed=true` still returns ids) → 1–2 pages.
+- **🔴 geopolitics TAG ≠ 0% fee.** Some geopolitics-tagged markets ("Xi out before 2027", "Erdogan
+  out 2026") have `feesEnabled=true`, `feeType="politics_fees"` (4%). The **definitive 0%-fee
+  selector is `feesEnabled=false` (≡ `feeType=null`)** on the market object, NOT the tag. For the
+  clean 0%-fee MM backtest, select tokens by `feesEnabled=false`; cross-check per token via
+  `clob /fee-rate` (`base_fee=0`).
+- **Design implication:** Gamma/CLOB expose **per-market fee data** (`feesEnabled`, `feeType`,
+  `feeSchedule={exponent,rate,takerOnly,rebateRate}`) — richer than our static `Category→rate`
+  table. Whether to drive the cost model from live per-market fees vs the static table is a
+  **Phase-2b decision** (route through `fee-cost-auditor`). Refines **C6**: "geopolitics 0%" holds
+  only for `feesEnabled=false` markets.
 
 ### How to update this file
 On any new verification: change Status, add source URL + date + one-line finding, and write an
