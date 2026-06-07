@@ -89,7 +89,7 @@ class MarketMaker:
     def _order(self, client_id: str, side: Side, price: Decimal) -> Order:
         return Order(
             client_id=client_id, token_id=self.token_id, side=side, price=price,
-            size=self.size, order_type=OrderType.GTC, mode="backtest", reason="mm-quote",
+            size=self.size, order_type=OrderType.GTC, reason="mm-quote",
         )
 
     def _clamp(self, p: Decimal) -> Decimal:
