@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,20 @@ from pat.data.polymarket_history import parse_orderfilled
 from pat.data.polymarket_on_chain import decode_v2_orderfilled, enrich_timestamps
 from pat.logging import TradeJournal
 from pat.venues.polymarket import gamma
-from scripts.fetch_polymarket_history import EXCHANGE_V2, NEGRISK_V2, fetch_orderfilled_logs
+
+# Allow direct execution (`python scripts/fetch_geopolitics_data.py`): running a file by path puts
+# the script's own dir on sys.path[0], not the project root, so the sibling `scripts.*` import below
+# would fail. Put the project root on sys.path first. pytest (pythonpath=".") and `python -m
+# scripts.fetch_geopolitics_data` already have the root on the path, so this is a no-op there.
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from scripts.fetch_polymarket_history import (  # noqa: E402
+    EXCHANGE_V2,
+    NEGRISK_V2,
+    fetch_orderfilled_logs,
+)
 
 log = structlog.get_logger(__name__)
 
