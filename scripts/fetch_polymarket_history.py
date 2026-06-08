@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -104,6 +105,19 @@ _SIZE_LIMIT_MARKERS = (
 )
 
 
+_MAX_RETRIES = 8
+_BACKOFF_BASE = 0.5  # seconds; exponential, capped at _BACKOFF_CAP
+_BACKOFF_CAP = 8.0
+
+
+def _is_rate_limited(status_code: int, detail: Any) -> bool:
+    """True if the response is a provider throughput / rate-limit error (retry, don't split)."""
+    if status_code == 429:
+        return True
+    text = str(detail).lower()
+    return any(m in text for m in ("429", "compute units per second", "rate limit", "throughput"))
+
+
 def _get_logs_range(
     client: httpx.Client,
     rpc_url: str,
@@ -112,40 +126,58 @@ def _get_logs_range(
     hi: int,
     topics: list[str] | None,
 ) -> list[dict[str, Any]]:
-    """Fetch one [lo, hi] block range, auto-splitting on the getLogs size/range limit.
+    """Fetch one [lo, hi] block range, retrying on rate limits and splitting on size limits.
 
-    Alchemy (and most providers) cap eth_getLogs by response size / block range and
-    report it as an HTTP 4xx whose JSON body carries the real reason.  We parse that
-    body (so the cause is visible) and, when it is a size/range limit and the range is
-    splittable, bisect and recurse.  Errors are raised WITHOUT the RPC URL so the
-    embedded API key never reaches logs or tracebacks.
+    The JSON body carries the real reason; we parse it (so the cause is visible) and never
+    echo the RPC URL, which embeds the API key. Handling:
+      - HTTP 429 / throughput error  -> exponential backoff, retry the SAME range
+      - size / block-range limit      -> bisect the range and recurse
+      - anything else                 -> raise (redacted)
     """
-    payload = _build_getlogs_payload(address, lo, hi, topics)
-    response = client.post(rpc_url, json=payload)
-    try:
-        body: Any = response.json()
-    except ValueError:
-        body = None
+    last_detail: Any = ""
+    for attempt in range(_MAX_RETRIES + 1):
+        payload = _build_getlogs_payload(address, lo, hi, topics)
+        response = client.post(rpc_url, json=payload)
+        try:
+            body: Any = response.json()
+        except ValueError:
+            body = None
 
-    err = body.get("error") if isinstance(body, dict) else None
-    if err is None and response.status_code < 400:
-        chunk_results: list[dict[str, Any]] = (
-            body.get("result", []) if isinstance(body, dict) else []
-        )
-        log.debug("rpc.eth_getLogs.response", from_block=lo, to_block=hi, count=len(chunk_results))
-        return chunk_results
+        err = body.get("error") if isinstance(body, dict) else None
+        if err is None and response.status_code < 400:
+            chunk_results: list[dict[str, Any]] = (
+                body.get("result", []) if isinstance(body, dict) else []
+            )
+            log.debug(
+                "rpc.eth_getLogs.response", from_block=lo, to_block=hi, count=len(chunk_results)
+            )
+            return chunk_results
 
-    detail = err if err is not None else (response.text[:300] if response.text else "")
-    is_size_limit = any(m in str(detail).lower() for m in _SIZE_LIMIT_MARKERS)
-    if is_size_limit and lo < hi:
-        mid = (lo + hi) // 2
-        log.debug("rpc.eth_getLogs.split", from_block=lo, to_block=hi, mid=mid)
-        return _get_logs_range(client, rpc_url, address, lo, mid, topics) + _get_logs_range(
-            client, rpc_url, address, mid + 1, hi, topics
+        detail = err if err is not None else (response.text[:300] if response.text else "")
+        last_detail = detail
+
+        if _is_rate_limited(response.status_code, detail):
+            sleep_s = min(_BACKOFF_CAP, _BACKOFF_BASE * (2**attempt))
+            log.debug(
+                "rpc.eth_getLogs.retry",
+                from_block=lo, to_block=hi, attempt=attempt + 1, sleep_s=sleep_s,
+            )
+            time.sleep(sleep_s)
+            continue
+
+        if any(m in str(detail).lower() for m in _SIZE_LIMIT_MARKERS) and lo < hi:
+            mid = (lo + hi) // 2
+            log.debug("rpc.eth_getLogs.split", from_block=lo, to_block=hi, mid=mid)
+            return _get_logs_range(client, rpc_url, address, lo, mid, topics) + _get_logs_range(
+                client, rpc_url, address, mid + 1, hi, topics
+            )
+
+        raise RuntimeError(
+            f"eth_getLogs failed (HTTP {response.status_code}) for blocks [{lo}, {hi}]: {detail}"
         )
 
     raise RuntimeError(
-        f"eth_getLogs failed (HTTP {response.status_code}) for blocks [{lo}, {hi}]: {detail}"
+        f"eth_getLogs rate-limited after {_MAX_RETRIES} retries [{lo}, {hi}]: {last_detail}"
     )
 
 

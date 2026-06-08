@@ -107,3 +107,50 @@ def test_fetch_orderfilled_logs_queries_all_addresses(monkeypatch) -> None:
     out = f.fetch_orderfilled_logs("rpc", [f.EXCHANGE_V2, f.NEGRISK_V2], 1, 2)
     assert seen == [f.EXCHANGE_V2, f.NEGRISK_V2]
     assert len(out) == 2
+
+
+class _FakeResp:
+    def __init__(self, status: int, body: object) -> None:
+        self.status_code = status
+        self._body = body
+        self.text = str(body)
+
+    def json(self) -> object:
+        return self._body
+
+
+def test_get_logs_range_retries_on_429(monkeypatch) -> None:
+    """A 429 must back off and retry the same range, not abort the fetch."""
+    from scripts import fetch_polymarket_history as f
+
+    calls = {"n": 0}
+
+    class FakeClient:
+        def post(self, url, json):  # noqa: A002 - mirrors httpx.Client.post(json=)
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _FakeResp(429, {"error": {"code": 429}})  # HTTP 429 -> retry
+            return _FakeResp(200, {"result": [{"ok": True}]})
+
+    monkeypatch.setattr(f.time, "sleep", lambda *_: None)  # no real wait in tests
+    out = f._get_logs_range(FakeClient(), "rpc", "0xADDR", 1, 10, None)
+    assert out == [{"ok": True}]
+    assert calls["n"] == 2  # one 429, then success
+
+
+def test_get_logs_range_splits_on_size_limit(monkeypatch) -> None:
+    """A size/range-limit error must bisect the range and concatenate the halves."""
+    from scripts import fetch_polymarket_history as f
+
+    class FakeClient:
+        def post(self, url, json):  # noqa: A002
+            params = json["params"][0]
+            lo = int(params["fromBlock"], 16)
+            hi = int(params["toBlock"], 16)
+            if hi - lo >= 10:  # the full [0, 10] range is "too big"
+                return _FakeResp(400, {"error": {"message": "more than 10000 results"}})
+            return _FakeResp(200, {"result": [{"blk": lo}]})
+
+    monkeypatch.setattr(f.time, "sleep", lambda *_: None)
+    out = f._get_logs_range(FakeClient(), "rpc", "0xADDR", 0, 10, None)
+    assert len(out) == 2  # [0,10] -> [0,5] + [6,10], each small -> 1 result each
