@@ -161,19 +161,19 @@ Monkeypatch it (or pass `get_ts=`) in tests.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
-import httpx
 import structlog
 
 # keccak256("OrderFilled(bytes32,address,address,uint8,uint256,uint256,uint256,uint256,bytes32,bytes32)")
 TOPIC0_ORDERFILLED = "0xd543adfd945773f1a62f74f0ee55a5e3b9b1a28262980ba90b1a89f2ea84d8ee"
 
-_REQUEST_TIMEOUT = 30  # seconds — explicit to satisfy ruff S113
-_DATA_WORDS = 7        # side, tokenId, makerAmt, takerAmt, fee, builder, metadata
+_DATA_WORDS = 7  # side, tokenId, makerAmt, takerAmt, fee, builder, metadata
 
 log = structlog.get_logger(__name__)
+```
+(Only `Any` + `structlog` are imported here — `httpx`/`Callable`/`_REQUEST_TIMEOUT` are added in Task 2 when they are first used, to avoid ruff F401 unused-import in this task.)
+```python
 
 
 def decode_v2_orderfilled(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -294,7 +294,22 @@ Expected: FAIL — `AttributeError: module 'pat.data.polymarket_on_chain' has no
 
 - [ ] **Step 3: Write minimal implementation**
 
-Append to `src/pat/data/polymarket_on_chain.py`:
+First add the imports/constant these functions newly use. Update the top import block to:
+```python
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
+import httpx
+import structlog
+```
+and add next to `_DATA_WORDS`:
+```python
+_REQUEST_TIMEOUT = 30  # seconds — explicit to satisfy ruff S113
+```
+
+Then append the two functions to `src/pat/data/polymarket_on_chain.py`:
 ```python
 def _rpc_get_block_timestamp(rpc_url: str, block_number: int) -> int:
     """Return the Unix epoch SECONDS for *block_number* via eth_getBlockByNumber.
