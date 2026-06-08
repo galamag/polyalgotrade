@@ -32,7 +32,8 @@ from pat.data.polymarket_on_chain import TOPIC0_ORDERFILLED
 EXCHANGE_V2 = "0xE111180000d2663C0091e4f400237545B87B996B"
 GAMMA = "https://gamma-api.polymarket.com"
 # NegRisk CTF Exchange V2 — geopolitics multi-outcome markets often trade here.
-# Address came from a secondary read; verified separately (claims-verifier) before trusting it.
+# Whether it emits the SAME OrderFilled ABI/topic0 as the main exchange is verified in
+# Task 7 (claims-verifier) before any real fetch relies on it; until then treat as candidate.
 NEGRISK_V2 = "0xe2222d279d744050d28e00520010520000310F59"
 
 _DEFAULT_RPC = "https://polygon-rpc.com"
