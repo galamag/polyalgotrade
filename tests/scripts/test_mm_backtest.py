@@ -73,3 +73,44 @@ def test_streams_from_fills_groups_orders_and_filters() -> None:
     assert set(streams) == {"a"}                       # 'b' filtered out
     assert streams["a"] == [(Decimal("0.4"), Decimal("1")),
                             (Decimal("0.5"), Decimal("3"))]   # ts-ordered
+
+
+def test_render_frontier_markdown_has_table_and_provenance() -> None:
+    from decimal import Decimal
+
+    from pat.analytics.metrics import Result, Verdict
+    from scripts.run_mm_backtest import render_frontier_markdown
+
+    rows = [{
+        "half_spread": Decimal("0.02"),
+        "result": Result(gross_pnl=Decimal("5"), fee_drag=Decimal("0"), net_pnl=Decimal("4"),
+                         win_rate=Decimal("0.5"), max_drawdown=Decimal("1"), n_trades=1200,
+                         sharpe=1.4, inventory_value=Decimal("-1")),
+        "verdict": Verdict(advance=True, reason="all gates passed"),
+    }]
+    md = render_frontier_markdown(
+        rows, provenance={"block_window": "100-300", "tokens": 4, "fills": 1200}
+    )
+
+    assert "| half_spread |" in md
+    assert "0.02" in md and "1200" in md and "1.4" in md
+    assert "block_window" in md and "100-300" in md
+    assert "per-fill" in md.lower()  # the §8 caveat note is included
+
+
+def test_write_results_section_replaces_between_markers(tmp_path) -> None:
+    from scripts.run_mm_backtest import write_results_section
+
+    doc = tmp_path / "doc.md"
+    doc.write_text(
+        "# Strategy\n\nintro\n<!-- RESULTS:START -->\nold\n<!-- RESULTS:END -->\n\ntail\n",
+        encoding="utf-8",
+    )
+    write_results_section(doc, "NEW CONTENT")
+    text = doc.read_text(encoding="utf-8")
+
+    assert "NEW CONTENT" in text
+    assert "old" not in text
+    assert text.startswith("# Strategy")
+    assert text.rstrip().endswith("tail")
+    assert "<!-- RESULTS:START -->" in text and "<!-- RESULTS:END -->" in text

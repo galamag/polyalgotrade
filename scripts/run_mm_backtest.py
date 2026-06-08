@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -81,6 +82,44 @@ def print_frontier(rows: list[dict[str, Any]]) -> None:
         )
 
 
+RESULTS_START = "<!-- RESULTS:START -->"
+RESULTS_END = "<!-- RESULTS:END -->"
+
+
+def render_frontier_markdown(rows: list[dict[str, Any]], *, provenance: dict[str, Any]) -> str:
+    """Render the sweep frontier as a markdown table + verdict + §8 caveats + provenance."""
+    header = (
+        "| half_spread | n_trades | net_pnl | gross_pnl | fee_drag "
+        "| inv_value | win_rate | max_dd | sharpe | advance |"
+    )
+    lines = [header, "|---|---|---|---|---|---|---|---|---|---|"]
+    for r in rows:
+        res, v = r["result"], r["verdict"]
+        lines.append(
+            f"| {r['half_spread']} | {res.n_trades} | {res.net_pnl} "
+            f"| {res.gross_pnl} | {res.fee_drag} | {res.inventory_value} "
+            f"| {res.win_rate:.3f} | {res.max_drawdown} | {res.sharpe:.3f} "
+            f"| {v.advance} |"
+        )
+    prov = ", ".join(f"{k}={val}" for k, val in provenance.items())
+    caveats = (
+        "_Caveats (§8): sharpe is per-fill (relative ranking, not "
+        "annualized); win_rate ~50% by construction for a two-sided MM "
+        "(lean on net_pnl incl. inventory MtM); sharpe & max_dd are "
+        "realized-only; fills are a conservative lower bound (through-trade "
+        "proxy, no order book — real proof is paper, Phase 3)._"
+    )
+    return "\n".join(lines) + f"\n\n**Provenance:** {prov}\n\n{caveats}\n"
+
+
+def write_results_section(doc_path: Path, section_md: str) -> None:
+    """Replace the content between RESULTS markers in *doc_path* with *section_md*."""
+    text = doc_path.read_text(encoding="utf-8")
+    start = text.index(RESULTS_START) + len(RESULTS_START)
+    end = text.index(RESULTS_END)
+    doc_path.write_text(text[:start] + "\n" + section_md + "\n" + text[end:], encoding="utf-8")
+
+
 def streams_from_fills(fills: list[Fill], token_ids: set[str] | None = None) -> dict[str, Stream]:
     """Group parsed Fill records into per-token (price, size) streams, ts-ordered.
 
@@ -128,6 +167,9 @@ if __name__ == "__main__":
         "--inventory-cap", default="100", help="Max absolute inventory per token (default: 100)."
     )
     parser.add_argument("--alpha", default="0.3", help="EWMA alpha for fair value (default: 0.3).")
+    parser.add_argument("--record", type=Path, default=None,
+                        help="If set, write the frontier into the RESULTS markers of this doc "
+                             "(e.g. docs/strategies/market-making.md).")
     args = parser.parse_args()
 
     log.info("mm_backtest.start", json_path=args.json_path)
@@ -174,4 +216,25 @@ if __name__ == "__main__":
         alpha=Decimal(args.alpha),
     )
     print_frontier(rows)
+
+    import uuid as _uuid
+
+    from pat.logging import TradeJournal
+
+    corr_id = str(_uuid.uuid4())
+    journal = TradeJournal(
+        path=Path("logs") / "mm_backtest.jsonl", mode="backtest", corr_id=corr_id
+    )
+    for r in rows:
+        res, v = r["result"], r["verdict"]
+        journal.record(event="verdict", strategy="market_maker", reason=v.reason,
+                       half_spread=str(r["half_spread"]), n_trades=res.n_trades,
+                       net_pnl=str(res.net_pnl), sharpe=res.sharpe, fee=str(res.fee_drag),
+                       advance=v.advance)
+    if args.record is not None:
+        provenance = {"json_path": args.json_path, "tokens": len(streams),
+                      "max_n_trades": max((r["result"].n_trades for r in rows), default=0)}
+        write_results_section(args.record, render_frontier_markdown(rows, provenance=provenance))
+        log.info("mm_backtest.verdict_recorded", doc=str(args.record))
+
     log.info("mm_backtest.done")

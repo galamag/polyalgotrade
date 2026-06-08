@@ -61,9 +61,9 @@ the spread and, where applicable, maker rebates — while paying little/no taker
 - Kill-switch on drawdown.
 
 ## 7. Results
-| Run | Window | Trades | Net PnL | Sharpe | Win% | Max DD | Notes |
-|---|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — | pending Phase 2b (real-data run, RPC-gated) |
+<!-- RESULTS:START -->
+_No verdict recorded yet — produced by `run_mm_backtest.py --record`._
+<!-- RESULTS:END -->
 
 ## 8. Verdict
 - [ ] EV > 0 after fees?  [ ] Sharpe > 1.0?  [ ] Survives pessimistic fills?
