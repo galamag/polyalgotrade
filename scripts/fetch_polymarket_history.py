@@ -83,31 +83,70 @@ def _rpc_get_logs(
     with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
         while chunk_start <= to_block:
             chunk_end = min(chunk_start + max_range - 1, to_block)
-            payload = _build_getlogs_payload(address, chunk_start, chunk_end, topics)
-            log.debug(
-                "rpc.eth_getLogs.request",
-                from_block=chunk_start,
-                to_block=chunk_end,
-                rpc_url=rpc_url,
+            results.extend(
+                _get_logs_range(client, rpc_url, address, chunk_start, chunk_end, topics)
             )
-            response = client.post(rpc_url, json=payload)
-            response.raise_for_status()
-            body = response.json()
-
-            if "error" in body:
-                raise RuntimeError(f"JSON-RPC error: {body['error']}")
-
-            chunk_results: list[dict[str, Any]] = body.get("result", [])
-            log.debug(
-                "rpc.eth_getLogs.response",
-                from_block=chunk_start,
-                to_block=chunk_end,
-                count=len(chunk_results),
-            )
-            results.extend(chunk_results)
             chunk_start = chunk_end + 1
 
     return results
+
+
+# Substrings in a provider's error message that mean "your range/result set is too big" — the
+# recoverable case we handle by bisecting the block range and retrying each half.
+_SIZE_LIMIT_MARKERS = (
+    "response size",
+    "log response",
+    "more than 10000",
+    "10000 results",
+    "block range",
+    "query returned more than",
+    "query timeout",
+)
+
+
+def _get_logs_range(
+    client: httpx.Client,
+    rpc_url: str,
+    address: str,
+    lo: int,
+    hi: int,
+    topics: list[str] | None,
+) -> list[dict[str, Any]]:
+    """Fetch one [lo, hi] block range, auto-splitting on the getLogs size/range limit.
+
+    Alchemy (and most providers) cap eth_getLogs by response size / block range and
+    report it as an HTTP 4xx whose JSON body carries the real reason.  We parse that
+    body (so the cause is visible) and, when it is a size/range limit and the range is
+    splittable, bisect and recurse.  Errors are raised WITHOUT the RPC URL so the
+    embedded API key never reaches logs or tracebacks.
+    """
+    payload = _build_getlogs_payload(address, lo, hi, topics)
+    response = client.post(rpc_url, json=payload)
+    try:
+        body: Any = response.json()
+    except ValueError:
+        body = None
+
+    err = body.get("error") if isinstance(body, dict) else None
+    if err is None and response.status_code < 400:
+        chunk_results: list[dict[str, Any]] = (
+            body.get("result", []) if isinstance(body, dict) else []
+        )
+        log.debug("rpc.eth_getLogs.response", from_block=lo, to_block=hi, count=len(chunk_results))
+        return chunk_results
+
+    detail = err if err is not None else (response.text[:300] if response.text else "")
+    is_size_limit = any(m in str(detail).lower() for m in _SIZE_LIMIT_MARKERS)
+    if is_size_limit and lo < hi:
+        mid = (lo + hi) // 2
+        log.info("rpc.eth_getLogs.split", from_block=lo, to_block=hi, mid=mid)
+        return _get_logs_range(client, rpc_url, address, lo, mid, topics) + _get_logs_range(
+            client, rpc_url, address, mid + 1, hi, topics
+        )
+
+    raise RuntimeError(
+        f"eth_getLogs failed (HTTP {response.status_code}) for blocks [{lo}, {hi}]: {detail}"
+    )
 
 
 def fetch_orderfilled_logs(
