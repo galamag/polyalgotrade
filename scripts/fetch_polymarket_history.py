@@ -24,11 +24,16 @@ from typing import Any
 import httpx
 import structlog
 
+from pat.data.polymarket_on_chain import TOPIC0_ORDERFILLED
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 # Verified in ADR 0007.  Do not hard-code if claim C1 is ever re-opened.
 EXCHANGE_V2 = "0xE111180000d2663C0091e4f400237545B87B996B"
 GAMMA = "https://gamma-api.polymarket.com"
+# NegRisk CTF Exchange V2 — geopolitics multi-outcome markets often trade here.
+# Address came from a secondary read; verified separately (claims-verifier) before trusting it.
+NEGRISK_V2 = "0xe2222d279d744050d28e00520010520000310F59"
 
 _DEFAULT_RPC = "https://polygon-rpc.com"
 _DEFAULT_MAX_BLOCK_RANGE = 1000
@@ -40,11 +45,26 @@ log = structlog.get_logger(__name__)
 # ── Network seam (only function that touches the wire) ────────────────────────
 
 
+def _build_getlogs_payload(
+    address: str, from_block: int, to_block: int, topics: list[str] | None = None
+) -> dict[str, Any]:
+    """Build the eth_getLogs JSON-RPC payload. Pure (no I/O) so it is unit-testable."""
+    log_filter: dict[str, Any] = {
+        "address": address,
+        "fromBlock": hex(from_block),
+        "toBlock": hex(to_block),
+    }
+    if topics is not None:
+        log_filter["topics"] = topics
+    return {"jsonrpc": "2.0", "id": 1, "method": "eth_getLogs", "params": [log_filter]}
+
+
 def _rpc_get_logs(
     rpc_url: str,
     address: str,
     from_block: int,
     to_block: int,
+    topics: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch eth_getLogs for *address* over [from_block, to_block] via JSON-RPC.
 
@@ -61,18 +81,7 @@ def _rpc_get_logs(
     with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
         while chunk_start <= to_block:
             chunk_end = min(chunk_start + max_range - 1, to_block)
-            payload: dict[str, Any] = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "eth_getLogs",
-                "params": [
-                    {
-                        "address": address,
-                        "fromBlock": hex(chunk_start),
-                        "toBlock": hex(chunk_end),
-                    }
-                ],
-            }
+            payload = _build_getlogs_payload(address, chunk_start, chunk_end, topics)
             log.debug(
                 "rpc.eth_getLogs.request",
                 from_block=chunk_start,
@@ -97,6 +106,21 @@ def _rpc_get_logs(
             chunk_start = chunk_end + 1
 
     return results
+
+
+def fetch_orderfilled_logs(
+    rpc_url: str,
+    addresses: list[str],
+    from_block: int,
+    to_block: int,
+) -> list[dict[str, Any]]:
+    """Fetch OrderFilled logs (topic0-filtered) across all *addresses*, concatenated."""
+    out: list[dict[str, Any]] = []
+    for address in addresses:
+        out.extend(
+            _rpc_get_logs(rpc_url, address, from_block, to_block, topics=[TOPIC0_ORDERFILLED])
+        )
+    return out
 
 
 # ── Main pipeline function ─────────────────────────────────────────────────────

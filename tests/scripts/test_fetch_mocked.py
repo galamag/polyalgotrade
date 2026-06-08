@@ -74,3 +74,36 @@ def test_no_real_network(monkeypatch, tmp_path):
     monkeypatch.setattr(f, "_rpc_get_logs", lambda *a, **k: [])
     # Should not raise.
     f.run(out_dir=tmp_path, from_block=1, to_block=1)
+
+
+def test_build_getlogs_payload_includes_topics() -> None:
+    from scripts.fetch_polymarket_history import _build_getlogs_payload
+
+    payload = _build_getlogs_payload("0xADDR", 10, 20, topics=["0xTOPIC"])
+    params = payload["params"][0]
+    assert params["address"] == "0xADDR"
+    assert params["fromBlock"] == hex(10)
+    assert params["toBlock"] == hex(20)
+    assert params["topics"] == ["0xTOPIC"]
+
+
+def test_build_getlogs_payload_omits_topics_when_none() -> None:
+    from scripts.fetch_polymarket_history import _build_getlogs_payload
+
+    payload = _build_getlogs_payload("0xADDR", 10, 20, topics=None)
+    assert "topics" not in payload["params"][0]
+
+
+def test_fetch_orderfilled_logs_queries_all_addresses(monkeypatch) -> None:
+    from scripts import fetch_polymarket_history as f
+
+    seen: list[str] = []
+
+    def fake_get_logs(rpc_url, address, from_block, to_block, topics=None):
+        seen.append(address)
+        return [{"address": address}]
+
+    monkeypatch.setattr(f, "_rpc_get_logs", fake_get_logs)
+    out = f.fetch_orderfilled_logs("rpc", [f.EXCHANGE_V2, f.NEGRISK_V2], 1, 2)
+    assert seen == [f.EXCHANGE_V2, f.NEGRISK_V2]
+    assert len(out) == 2
