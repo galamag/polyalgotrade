@@ -11,8 +11,10 @@ Network isolation: the ONLY function that touches the wire is `_rpc_get_block_ti
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
+import httpx
 import structlog
 
 # keccak256("OrderFilled(bytes32,address,address,uint8,uint256,uint256,uint256,uint256,"
@@ -22,6 +24,7 @@ TOPIC0_ORDERFILLED = (
 )
 
 _DATA_WORDS = 7  # side, tokenId, makerAmt, takerAmt, fee, builder, metadata
+_REQUEST_TIMEOUT = 30  # seconds — explicit to satisfy ruff S113
 
 log = structlog.get_logger(__name__)
 
@@ -78,3 +81,50 @@ def decode_v2_orderfilled(raw: dict[str, Any]) -> dict[str, Any] | None:
         "metadata": hex(metadata),
         "blockNumber": int(raw["blockNumber"], 16),
     }
+
+
+def _rpc_get_block_timestamp(rpc_url: str, block_number: int) -> int:
+    """Return the Unix epoch SECONDS for *block_number* via eth_getBlockByNumber.
+
+    The ONLY function that touches the wire. Monkeypatch it (or pass get_ts=) in tests.
+    Alchemy cost: ~20 CU per call (ADR 0016 §4).
+    """
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_getBlockByNumber",
+        "params": [hex(block_number), False],
+    }
+    with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
+        response = client.post(rpc_url, json=payload)
+        response.raise_for_status()
+        body = response.json()
+    if "error" in body:
+        raise RuntimeError(f"JSON-RPC error: {body['error']}")
+    return int(body["result"]["timestamp"], 16)
+
+
+def enrich_timestamps(
+    events: list[dict[str, Any]],
+    rpc_url: str,
+    get_ts: Callable[[str, int], int] | None = None,
+) -> list[dict[str, Any]]:
+    """Inject event['timestamp'] (epoch MILLISECONDS) by looking up each block once.
+
+    Dedups by blockNumber so we make one eth_getBlockByNumber call per unique block
+    (the CU saving). `parse_orderfilled` expects timestamp in MS, so we multiply the
+    block's epoch-seconds by 1000.
+
+    get_ts defaults to the module seam, resolved at CALL time (not as a default-arg
+    object) so monkeypatching `polymarket_on_chain._rpc_get_block_timestamp` works.
+    """
+    if get_ts is None:
+        get_ts = _rpc_get_block_timestamp
+    cache: dict[int, int] = {}
+    for ev in events:
+        block = int(ev["blockNumber"])
+        if block not in cache:
+            cache[block] = get_ts(rpc_url, block)
+        ev["timestamp"] = cache[block] * 1000
+    log.info("orderfilled.timestamps_enriched", events=len(events), unique_blocks=len(cache))
+    return events

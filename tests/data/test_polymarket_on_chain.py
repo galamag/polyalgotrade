@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import httpx
+
 from pat.data.polymarket_history import parse_orderfilled
 from pat.data.polymarket_on_chain import TOPIC0_ORDERFILLED, decode_v2_orderfilled
 
@@ -98,3 +100,39 @@ def test_decode_raises_on_short_data() -> None:
     log["data"] = "0x" + "00" * 32  # only 1 word present, decoder needs 7
     with pytest.raises(ValueError):
         decode_v2_orderfilled(log)
+
+
+def test_enrich_timestamps_dedups_blocks_and_scales_to_ms() -> None:
+    from pat.data import polymarket_on_chain as oc
+
+    calls: list[int] = []
+
+    def fake_get_ts(rpc_url: str, block_number: int) -> int:
+        calls.append(block_number)
+        return 1_700_000_000 + block_number  # epoch SECONDS
+
+    events = [
+        {"blockNumber": 100, "transactionHash": "0xa"},
+        {"blockNumber": 100, "transactionHash": "0xb"},  # same block -> no extra RPC call
+        {"blockNumber": 200, "transactionHash": "0xc"},
+    ]
+    out = oc.enrich_timestamps(events, rpc_url="x", get_ts=fake_get_ts)
+
+    assert calls == [100, 200]  # deduped, first-seen order
+    assert out[0]["timestamp"] == (1_700_000_000 + 100) * 1000  # seconds -> ms
+    assert out[1]["timestamp"] == (1_700_000_000 + 100) * 1000
+    assert out[2]["timestamp"] == (1_700_000_000 + 200) * 1000
+
+
+def test_enrich_timestamps_no_real_network(monkeypatch) -> None:
+    from pat.data import polymarket_on_chain as oc
+
+    def _boom(*a, **k):
+        raise AssertionError("Real network call detected")
+
+    monkeypatch.setattr(httpx, "Client", _boom)
+    events = [{"blockNumber": 1, "transactionHash": "0xa"}]
+    out = oc.enrich_timestamps(
+        events, rpc_url="x", get_ts=lambda rpc_url, block_number: 1_700_000_000
+    )
+    assert out[0]["timestamp"] == 1_700_000_000 * 1000
