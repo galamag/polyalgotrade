@@ -27,6 +27,14 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/pat"]
 
+[tool.uv]
+# Supply-chain hardening (ADR 0017): rolling dependency cooldown. Refuse to resolve any
+# package version published in the last 7 days. Most malicious PyPI/npm releases are caught
+# and yanked within hours-to-days (axios ~4h, Solana web3.js ~5h; 8/10 major attacks had a
+# <1-week window), so a 7-day window dodges the live-attack window at resolution time.
+# Urgent security hotfix inside the window: `uv lock --exclude-newer-package <pkg>=<timestamp>`.
+exclude-newer = "7 days"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
