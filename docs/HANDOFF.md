@@ -4,36 +4,42 @@
 > git-versioned session handoff (unlike `.remember/remember.md`, which the remember plugin empties
 > on start and is not in git). **Update + commit this file at each session end.**
 
-**Last updated:** 2026-06-08 · **Branch:** `main` @ `c0e7809` (pushed; origin in sync)
+**Last updated:** 2026-06-08 · **Branch:** `main` @ `7e59d4b` (LOCAL — ahead of origin, NOT pushed)
 
 ## Where we are
 - **Phase 0 ✅** claims verification · **Phase 1 ✅** data + cost model + backtest core.
-- **Phase 2 ✅** Market-making **backtest pipeline** — built test-first (8 tasks), adversarially
-  reviewed, merged to `main`, pushed. 104 tests green, ruff + mypy clean.
-- **Phase 2b — IN PROGRESS, GATED.** Data gates VERIFIED (I8 OrderFilled ABI + I9 Gamma; ADR 0016).
-  RPC ready (`.env` `POLYGON_RPC_URL` = Alchemy free, 30M CU/mo). **No MM edge verdict yet** — that
-  is the Phase-2b goal. Tracker task #28.
+- **Phase 2 ✅** Market-making **backtest pipeline** — built test-first, merged to `main`.
+- **Phase 2b — DATA LAYER BUILT ✅, VERDICT PENDING.** The geopolitics data layer (V2 decoder +
+  block-timestamp enrichment + Gamma 0%-fee selection + fetcher topic0/NegRisk + orchestration +
+  verdict recording) was built test-first (6 tasks), per-task + holistic adversarially reviewed, and
+  **merged to `main`. 123 tests green, ruff + mypy clean.** RPC ready (`.env` `POLYGON_RPC_URL` =
+  Alchemy free, 30M CU/mo). **The ONE remaining step is Task 7 — the real-data run that produces the
+  actual MM edge verdict** (no verdict yet). See "Next action".
+- **Security:** supply-chain hardening done this session (ADR 0017): uv 7-day cooldown
+  (`exclude-newer`), npm `ignore-scripts`+`min-release-age`, anti-AI-poisoning rule, portable
+  `docs/operations/PACKAGE_SECURITY_PROTOCOL.md`. (npm done; registry MFA/tokens [F] deferred by user.)
 
 ## Read next (grounding, in order)
 1. `CLAUDE.md` — operating manual (auto-loads).
 2. `docs/roadmap.md` — phase gates + "current position".
 3. `docs/strategies/market-making.md` — MM v1 design + **§8 verdict-writing caveats**.
-4. `docs/superpowers/plans/2026-06-07-phase2-market-making.md` — the built pipeline (Tasks 1–8).
-5. ADRs: `0012` (entry prereqs), `0013`/`0014` (catalog / book data), `0015` (mode seam),
-   **`0016`** (V2 OrderFilled decode recipe).
-6. `docs/research/claims-verification.md` — claims **I8** (OrderFilled ABI) + **I9** (Gamma geopolitics).
+4. **`docs/superpowers/specs/2026-06-08-phase2b-data-layer-design.md`** + **`docs/superpowers/plans/2026-06-08-phase2b-data-layer.md`** — Phase-2b spec + plan (Tasks 1-7; **1-6 DONE**, 7 = next).
+5. New code: `src/pat/data/polymarket_on_chain.py` (decode + enrich), `src/pat/venues/polymarket/gamma.py` (selection), `scripts/fetch_geopolitics_data.py` (orchestration), `scripts/run_mm_backtest.py --record`.
+6. ADRs: **`0016`** (V2 decode), `0009` (fees), `0014` (backtest = lower bound), `0015` (mode), **`0017`** (supply-chain). Claims **I8/I9**.
 
-## Next action — Phase 2b (brainstorm → writing-plans → subagent-driven)
-Build the data layer to produce a REAL MM verdict:
-1. **Gamma client** — `GET /events?tag_id=100265` → `markets[].clobTokenIds` + per-market
-   `feesEnabled`; select `feesEnabled=false` (the true 0%-fee geopolitics markets).
-2. **On-chain decoder** — `decode_v2_orderfilled` (ADR 0016 recipe) + `eth_getBlockByNumber`
-   block-timestamp batch fetch + fetch `OrderFilled` (topic0 `0xd543adfd…`) for the window.
-3. **Wire** — decode → existing parser → per-token streams (filtered to 0%-fee tokens) →
-   `scripts/run_mm_backtest.py::run_sweep` → record the verdict in `docs/strategies/market-making.md`
-   §7-8. Gate: **n≥1000 ∧ net EV>0 ∧ Sharpe>1.0**.
-4. **Cost-model decision** — keep static `Category→rate` vs read live per-market Gamma fee
-   (route via the `fee-cost-auditor` subagent).
+## Next action — Phase 2b **Task 7** (operational real-data run → THE verdict)
+The data layer is built & merged; Task 7 produces the real verdict (plan §"Task 7"). Needs real
+network + Alchemy CU + decisions:
+1. **NegRisk verify** (`claims-verifier`): confirm `0xe2222…0F59` emits the same `OrderFilled`
+   ABI/topic0; record in `claims-verification.md`. If not → use main exchange only.
+2. **Probe + grow window:** `uv run python scripts/fetch_geopolitics_data.py --from-block <B> --to-block <B2> --cross-check`
+   → read the `geopolitics.*` log counts → grow the window until ≥1000–2000 fills (watch CU; lower
+   `POLYGON_MAX_BLOCK_RANGE` if getLogs hits the 10k cap).
+3. **Verdict:** `uv run python scripts/run_mm_backtest.py data/raw/geopolitics_<B>_<B2>.json --record docs/strategies/market-making.md`.
+4. **Golden fixture:** save one real raw OrderFilled → `tests/data/fixtures/orderfilled_raw_v2.json` + a decode assertion (plan Task 7 Step 4b).
+5. **Cost sign-off** (`fee-cost-auditor`): ratify static `GEOPOLITICS=0` + review `inventory_haircut`.
+6. **ADR 0018** (the verdict) + fill `market-making.md` §8. Gate: **n≥1000 ∧ net EV>0 ∧ Sharpe>1.0**.
+   If volume can't reach 1000 → honest "insufficient data", not "no edge".
 
 ## Non-obvious gotchas (durable)
 - 🔴 **geopolitics 0%-fee = `feesEnabled=false` per market, NOT the tag** — some geopolitics-tagged
