@@ -43,3 +43,43 @@ def test_select_cross_check_drops_nonzero_base_fee() -> None:
         events, cross_check=True, get_fee_rate=lambda token_id: fee_rates[token_id]
     )
     assert tokens == {"111"}
+
+
+def test_gamma_all_events_paginates_across_pages() -> None:
+    """Gamma caps ~100 events/page; the helper must page until a short page."""
+    from pat.venues.polymarket import gamma
+
+    pages = {0: [{"id": i} for i in range(100)], 100: [{"id": i} for i in range(100, 130)]}
+
+    def fake(tag_id, *, closed=None, limit=100, offset=0):
+        return pages.get(offset, [])
+
+    out = gamma._gamma_get_all_events(get_page=fake)
+    assert len(out) == 130
+
+
+def test_gamma_all_events_stops_when_no_new_events() -> None:
+    """A provider that returns the same full page forever must not loop — dedup stops it."""
+    from pat.venues.polymarket import gamma
+
+    full = [{"id": i} for i in range(100)]
+
+    def fake(tag_id, *, closed=None, limit=100, offset=0):
+        return full  # same 100 ids every call -> page 2 adds nothing new
+
+    out = gamma._gamma_get_all_events(get_page=fake)
+    assert len(out) == 100
+
+
+def test_gamma_all_events_passes_closed_flag() -> None:
+    """run() needs closed=False to reach LIVE markets; confirm it is forwarded."""
+    from pat.venues.polymarket import gamma
+
+    seen: list[bool | None] = []
+
+    def fake(tag_id, *, closed=None, limit=100, offset=0):
+        seen.append(closed)
+        return []
+
+    gamma._gamma_get_all_events(closed=False, get_page=fake)
+    assert seen == [False]

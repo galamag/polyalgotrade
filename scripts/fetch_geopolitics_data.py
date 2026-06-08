@@ -88,8 +88,9 @@ def run(
     )
     bound = log.bind(corr_id=corr_id, from_block=from_block, to_block=to_block)
 
-    # 1. Gamma selection
-    events = gamma._gamma_get_events()
+    # 1. Gamma selection (LIVE markets only: closed=False, paginated past Gamma's ~100/page cap.
+    # The default tag-only page returns mostly resolved 2024 markets that never trade in-window.)
+    events = gamma._gamma_get_all_events(closed=False)
     geo_tokens = gamma.select_geopolitics_tokens(events, cross_check=cross_check)
     journal.record(event="gamma_selection", tokens=len(geo_tokens))
     bound.info("geopolitics.tokens_selected", tokens=len(geo_tokens))

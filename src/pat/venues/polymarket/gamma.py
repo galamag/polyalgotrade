@@ -33,16 +33,65 @@ def _coerce_token_ids(raw: Any) -> list[str]:
     return [str(t) for t in raw]
 
 
+_GAMMA_PAGE_SIZE = 100  # Gamma caps /events at ~100 per page regardless of `limit`
+_GAMMA_MAX_PAGES = 50  # safety bound (50 * 100 = 5000 events)
+
+
 def _gamma_get_events(
-    tag_id: int = GEOPOLITICS_TAG_ID, *, limit: int = 500, offset: int = 0
+    tag_id: int = GEOPOLITICS_TAG_ID,
+    *,
+    closed: bool | None = None,
+    limit: int = _GAMMA_PAGE_SIZE,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
-    """Fetch geopolitics events from Gamma. ONLY wire-touching Gamma function."""
-    params = {"tag_id": tag_id, "limit": limit, "offset": offset}
+    """Fetch one page of geopolitics events from Gamma. ONLY wire-touching Gamma function.
+
+    Pass ``closed=False`` to select LIVE markets — without it Gamma's default page returns
+    mostly old, resolved markets whose tokens never appear in a recent on-chain window.
+    """
+    params: dict[str, Any] = {"tag_id": tag_id, "limit": limit, "offset": offset}
+    if closed is not None:
+        params["closed"] = "true" if closed else "false"
     with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
         response = client.get(f"{GAMMA}/events", params=params)
         response.raise_for_status()
         body: list[dict[str, Any]] = response.json()
     return body
+
+
+def _gamma_get_all_events(
+    tag_id: int = GEOPOLITICS_TAG_ID,
+    *,
+    closed: bool | None = None,
+    get_page: Callable[..., list[dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
+    """Page through Gamma (which caps ~100 events/page) collecting every event for the tag.
+
+    Dedups by event ``id``; stops on an empty page, a short (< page-size) page, or a page
+    that adds no new events. ``get_page`` is injectable for tests; bounded by _GAMMA_MAX_PAGES.
+    """
+    fetch = get_page or _gamma_get_events
+    seen: set[Any] = set()
+    out: list[dict[str, Any]] = []
+    for page in range(_GAMMA_MAX_PAGES):
+        events = fetch(
+            tag_id, closed=closed, limit=_GAMMA_PAGE_SIZE, offset=page * _GAMMA_PAGE_SIZE
+        )
+        if not events:
+            break
+        new = 0
+        for ev in events:
+            eid = ev.get("id")
+            key = eid if eid is not None else id(ev)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(ev)
+            new += 1
+        if new == 0 or len(events) < _GAMMA_PAGE_SIZE:
+            break
+    log.info("gamma.events_fetched", events=len(out), closed=closed)
+    return out
 
 
 def _clob_get_fee_rate(token_id: str) -> int:
