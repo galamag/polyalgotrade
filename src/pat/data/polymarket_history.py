@@ -116,5 +116,6 @@ def parse_orderfilled(events: list[dict[str, object]]) -> list[Fill]:
         )
         out.append(fill)
 
-    log.info("orderfilled.batch_parsed", count=len(out))
+    # debug, not info: the quarantine step calls this once PER event, so info floods the console
+    log.debug("orderfilled.batch_parsed", count=len(out))
     return out

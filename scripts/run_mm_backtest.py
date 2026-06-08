@@ -172,6 +172,17 @@ if __name__ == "__main__":
                              "(e.g. docs/strategies/market-making.md).")
     args = parser.parse_args()
 
+    import logging
+
+    structlog.configure(
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso", utc=True),
+            structlog.processors.JSONRenderer(),
+        ],
+        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+    )
+
     log.info("mm_backtest.start", json_path=args.json_path)
 
     with open(args.json_path, encoding="utf-8") as fh:

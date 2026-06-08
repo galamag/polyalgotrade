@@ -139,7 +139,7 @@ def _get_logs_range(
     is_size_limit = any(m in str(detail).lower() for m in _SIZE_LIMIT_MARKERS)
     if is_size_limit and lo < hi:
         mid = (lo + hi) // 2
-        log.info("rpc.eth_getLogs.split", from_block=lo, to_block=hi, mid=mid)
+        log.debug("rpc.eth_getLogs.split", from_block=lo, to_block=hi, mid=mid)
         return _get_logs_range(client, rpc_url, address, lo, mid, topics) + _get_logs_range(
             client, rpc_url, address, mid + 1, hi, topics
         )
