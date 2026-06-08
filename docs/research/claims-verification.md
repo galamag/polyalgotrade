@@ -278,6 +278,12 @@ This maps V2 to the existing parser's collateral-detection logic without changin
   table. Whether to drive the cost model from live per-market fees vs the static table is a
   **Phase-2b decision** (route through `fee-cost-auditor`). Refines **C6**: "geopolitics 0%" holds
   only for `feesEnabled=false` markets.
+- **🔴 selection gotcha (Task-7, verified 2026-06-09 on live data):** `GET /events?tag_id=100265`
+  with NO `closed` filter returns a single ~100-event page of **resolved 2024 markets** (Gamma caps
+  ~100 events/page); their tokens never appear in a 2026 on-chain window → the first real fetch got
+  `geo=0` out of 212k fills. **Must select with `closed=false` AND paginate** (`offset`). Live 0%-fee
+  geopolitics is large & liquid: **~2,550 tokens, ~$31M/24h** (Iran/Israel airspace, Hormuz, US-Iran).
+  Fixed in `gamma._gamma_get_all_events(closed=False)` (run() uses it).
 
 ### I10 — NegRisk OrderFilled ABI vs main exchange (VERIFIED, 2026-06-08)
 
