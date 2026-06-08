@@ -70,3 +70,19 @@ def test_orchestration_no_real_network(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(httpx, "Client", _boom)
     g.run(out_dir=tmp_path, from_block=1, to_block=300, rpc_url="rpc")  # must not raise
+
+
+def test_orchestration_fast_ts_uses_block_number_and_skips_rpc(monkeypatch, tmp_path) -> None:
+    from scripts import fetch_geopolitics_data as g
+
+    geo, other = "111", "999"
+    ts_calls: list[int] = []
+    _patch_all_seams(monkeypatch, geo_token=geo, other_token=other, ts_calls=ts_calls)
+
+    out_path = g.run(out_dir=tmp_path, from_block=1, to_block=300, rpc_url="rpc", fast_ts=True)
+    written = json.loads(out_path.read_text(encoding="utf-8"))
+
+    assert len(written) == 1
+    assert written[0]["tokenId"] == geo
+    assert written[0]["timestamp"] == 100 * 1000   # geo block 0x64=100 -> ts=block*1000
+    assert ts_calls == []                           # fast mode makes NO eth_getBlockByNumber call

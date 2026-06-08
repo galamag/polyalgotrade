@@ -76,8 +76,16 @@ def run(
     rpc_url: str | None = None,
     *,
     cross_check: bool = False,
+    fast_ts: bool = False,
 ) -> Path:
-    """Produce the geopolitics-only decoded JSON for [from_block, to_block]."""
+    """Produce the geopolitics-only decoded JSON for [from_block, to_block].
+
+    fast_ts: skip the per-block eth_getBlockByNumber enrichment and order fills by block
+    number instead (timestamp = blockNumber * 1000). Block order == chronological order and
+    the MM backtest only uses ts for sorting, so backtest results are identical — but a large
+    window avoids thousands of RPC calls (and the CU cost). The resulting `timestamp` is NOT a
+    real epoch; use the default (real enrichment) when wall-clock time matters.
+    """
     corr_id = str(uuid.uuid4())
     effective_rpc = rpc_url or os.environ.get("POLYGON_RPC_URL", "https://polygon-rpc.com")
     out_dir = Path(out_dir)
@@ -108,8 +116,15 @@ def run(
     geo_events = [d for d in decoded if d["tokenId"] in geo_tokens]
     bound.info("geopolitics.filtered", decoded=len(decoded), geo=len(geo_events))
 
-    # 5. Enrich timestamps (one RPC per unique geo block)
-    geo_events = enrich_timestamps(geo_events, effective_rpc)
+    # 5. Timestamps
+    if fast_ts:
+        # Block order == chronological order; the backtest only uses ts to sort. Use the block
+        # number directly and skip the slow, CU-heavy per-block eth_getBlockByNumber lookups.
+        for ev in geo_events:
+            ev["timestamp"] = int(ev["blockNumber"]) * 1000
+        bound.info("geopolitics.block_ts", events=len(geo_events))
+    else:
+        geo_events = enrich_timestamps(geo_events, effective_rpc)
 
     # 6. Quarantine parser-failing events
     clean = _validate_and_quarantine(geo_events, journal)
@@ -130,6 +145,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--rpc-url", type=str, default=None)
     parser.add_argument("--cross-check", action="store_true",
                         help="Also verify base_fee==0 per token via the CLOB /fee-rate endpoint.")
+    parser.add_argument("--fast-ts", action="store_true",
+                        help="Order fills by block number (timestamp=block*1000) instead of one "
+                             "eth_getBlockByNumber per block. Identical backtest ordering, far "
+                             "fewer RPC calls/CU. Use for large research fetches.")
     return parser.parse_args()
 
 
@@ -146,5 +165,5 @@ if __name__ == "__main__":
     )
     args = _parse_args()
     result = run(out_dir=args.out_dir, from_block=args.from_block, to_block=args.to_block,
-                 rpc_url=args.rpc_url, cross_check=args.cross_check)
+                 rpc_url=args.rpc_url, cross_check=args.cross_check, fast_ts=args.fast_ts)
     print(result)  # noqa: T201
