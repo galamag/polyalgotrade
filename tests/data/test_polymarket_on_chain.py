@@ -89,3 +89,12 @@ def test_decode_skips_non_orderfilled_topic() -> None:
         side=0, token_id=int(TOKEN), maker_amt=1, taker_amt=2, fee=0, topic0="0xdeadbeef"
     )
     assert decode_v2_orderfilled(log) is None
+
+
+def test_decode_raises_on_short_data() -> None:
+    import pytest
+
+    log = _make_raw_log(side=0, token_id=1, maker_amt=1, taker_amt=1, fee=0)
+    log["data"] = "0x" + "00" * 32  # only 1 word present, decoder needs 7
+    with pytest.raises(ValueError):
+        decode_v2_orderfilled(log)

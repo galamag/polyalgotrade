@@ -45,6 +45,10 @@ def decode_v2_orderfilled(raw: dict[str, Any]) -> dict[str, Any] | None:
     if data_hex.startswith("0x"):
         data_hex = data_hex[2:]  # NB: do NOT use lstrip("0x") — it strips leading data zeros
     data = bytes.fromhex(data_hex)
+    if len(data) < _DATA_WORDS * 32:
+        raise ValueError(
+            f"OrderFilled data too short: {len(data)} bytes, need {_DATA_WORDS * 32}"
+        )
     words = [
         int.from_bytes(data[i : i + 32], "big")
         for i in range(0, _DATA_WORDS * 32, 32)
