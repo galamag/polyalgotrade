@@ -1,0 +1,29 @@
+[
+  {
+    "id": "evt-1",
+    "title": "Geopolitics event with a 0%-fee market and a politics-fee market",
+    "markets": [
+      {
+        "question": "Will country X do Y by 2027?",
+        "feesEnabled": false,
+        "clobTokenIds": ["111", "222"]
+      },
+      {
+        "question": "Will leader Z leave office in 2026?",
+        "feesEnabled": true,
+        "clobTokenIds": ["333", "444"]
+      }
+    ]
+  },
+  {
+    "id": "evt-2",
+    "title": "Event whose clobTokenIds arrives as a JSON-encoded string (real Gamma quirk)",
+    "markets": [
+      {
+        "question": "Will treaty A be signed in 2026?",
+        "feesEnabled": false,
+        "clobTokenIds": "[\"555\", \"666\"]"
+      }
+    ]
+  }
+]
