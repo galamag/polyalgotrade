@@ -32,8 +32,9 @@ from pat.data.polymarket_on_chain import TOPIC0_ORDERFILLED
 EXCHANGE_V2 = "0xE111180000d2663C0091e4f400237545B87B996B"
 GAMMA = "https://gamma-api.polymarket.com"
 # NegRisk CTF Exchange V2 — geopolitics multi-outcome markets often trade here.
-# Whether it emits the SAME OrderFilled ABI/topic0 as the main exchange is verified in
-# Task 7 (claims-verifier) before any real fetch relies on it; until then treat as candidate.
+# VERIFIED (claim I10, 2026-06-08): `NegRiskCtfExchange is CTFExchange{}` emits the IDENTICAL V2
+# OrderFilled (topic0 0xd543adfd...d8ee, 7-word layout) as the main exchange — decoder unchanged.
+# (It also emits OrdersMatched topic0 0x174b3811...; excluded by our topic0 filter.)
 NEGRISK_V2 = "0xe2222d279d744050d28e00520010520000310F59"
 
 _DEFAULT_RPC = "https://polygon-rpc.com"

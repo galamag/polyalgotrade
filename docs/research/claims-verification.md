@@ -43,6 +43,7 @@ unblocked**, with the corrections noted.
 | I7 | Polygon base fee ≥25 gwei; tx ≈ $0.0024 | **PARTIAL** | ✅ gas negligible (~$0.002–0.005); ❌ no confirmed 25-gwei floor — fetch gas live | polygonscan.com/gastracker |
 | I8 | V2 `OrderFilled` event carries maker/taker **addresses** (would enable C1 copy-trading attribution) | **VERIFIED** | ✅ maker (topic2) + taker (topic3) are indexed addresses. ⚠️ V2 event schema differs from V1: has `side`+`tokenId` (NOT `makerAssetId`/`takerAssetId`). Parser needs a raw-log→dict adapter. See ADR 0016. | Polygonscan ABI + GitHub ITrading.sol; live tx 0x5f58d002…c21 on Polygon block 88093791 (2026-06-07) |
 | I9 | Gamma: select geopolitics markets + token_ids; "geopolitics = 0% fee" nuance | **VERIFIED** | ✅ `/events?tag_id=100265` → `markets[].clobTokenIds` (YES/NO). ⚠️ **tag ≠ 0% fee**: select 0%-fee by `feesEnabled=false`/`feeType=null` per market (some geopolitics-tagged markets carry politics_fees 4%). Per-token: `clob.polymarket.com/fee-rate?token_id=`. ~35–40 events. | live gamma-api + clob /fee-rate (2026-06-07); docs gamma-openapi |
+| I10 | NegRisk CTF Exchange (`0xe2222…0F59`) emits **identical** `OrderFilled` event (same topic0, same non-indexed data layout) as main exchange — decoder works unchanged | **VERIFIED** | ✅ NegRisk deploys the SAME `CTFExchange` contract (confirmed Polygonscan source). `Events.sol` `_ORDER_FILLED_TOPIC` = `keccak256("OrderFilled(bytes32,address,address,uint8,uint256,uint256,uint256,uint256,bytes32,bytes32)")` ≡ `0xd543adfd...d8ee`. Live tx `0xcc667e6a…e3968` on NegRisk contract shows topic0 = `0xd543adfd945773f1a62f74f0ee55a5e3b9b1a28262980ba90b1a89f2ea84d8ee` with 7-word data layout (side,tokenId,makerAmountFilled,takerAmountFilled,fee,builder,metadata) byte-for-byte identical. ⚠️ The `INegRiskAdapter` emits additional NegRisk-only events (PositionsConverted, MarketPrepared, etc.) on its own adapter contract — irrelevant to OrderFilled decode. | GitHub raw `Events.sol` + `ITrading.sol` (ctf-exchange-v2 main); Polygonscan `0xe2222…0F59` verified source; live tx `0xcc667e6a64a151718069671341b33335dab5e05cb669f26baae35270b24e3968` (Polygon, 2026-06-08) |
 
 ## Low-trust / measure-ourselves
 
@@ -277,6 +278,61 @@ This maps V2 to the existing parser's collateral-detection logic without changin
   table. Whether to drive the cost model from live per-market fees vs the static table is a
   **Phase-2b decision** (route through `fee-cost-auditor`). Refines **C6**: "geopolitics 0%" holds
   only for `feesEnabled=false` markets.
+
+### I10 — NegRisk OrderFilled ABI vs main exchange (VERIFIED, 2026-06-08)
+
+**Question:** does `0xe2222d279d744050d28e00520010520000310F59` (NegRisk CTF Exchange V2) emit the
+identical `OrderFilled` event (topic0 + non-indexed data layout) as the main exchange
+`0xE111180000d2663C0091e4f400237545B87B996B` so that the existing decoder works unchanged?
+
+**Primary sources:**
+- GitHub raw `src/exchange/mixins/Events.sol` (ctf-exchange-v2, branch main) — contains
+  `bytes32 private constant _ORDER_FILLED_TOPIC = keccak256("OrderFilled(bytes32,address,address,uint8,uint256,uint256,uint256,uint256,bytes32,bytes32)");`
+- GitHub raw `src/exchange/interfaces/ITrading.sol` — canonical event declaration
+- GitHub raw `src/exchange/CTFExchange.sol` — contract declaration:
+  `contract CTFExchange is Auth, ERC1155TokenReceiver, Pausable, Trading`
+- Polygonscan verified source for `0xe2222...0F59`: contract name `CTFExchange`, same source
+  files (Events.sol, Trading.sol, etc.)
+- Live tx `0xcc667e6a64a151718069671341b33335dab5e05cb669f26baae35270b24e3968` on the NegRisk
+  contract, Polygon, checked 2026-06-08
+
+**Structural finding:**
+The NegRisk CTF Exchange V2 (`0xe2222...0F59`) is NOT a separate contract with a different
+implementation. Polygonscan confirms it is **the identical `CTFExchange` Solidity contract**
+(same verified source, same inheritance chain: CTFExchange → Trading → Events mixin). There
+is no NegRisk-specific redefinition of `OrderFilled`.
+
+**topic0 confirmed on-chain (NegRisk contract):**
+```
+0xd543adfd945773f1a62f74f0ee55a5e3b9b1a28262980ba90b1a89f2ea84d8ee
+```
+(matches main exchange exactly — same `Events.sol` constant)
+
+**Non-indexed data layout confirmed from live NegRisk tx (Log 916 of tx 0xcc667e6a…):**
+```
+data = 7 x 32-byte ABI-encoded words:
+  word 0: side               = 0x01 (SELL)
+  word 1: tokenId            = 0x39a8db032a38d5a3328d7ac12a5049384657152c00bad97eac94caf2ac53e29c
+  word 2: makerAmountFilled  = 0x01755a74 (24,534,644 → 24.534644 USDC)
+  word 3: takerAmountFilled  = 0x015ef3be (23,069,630)
+  word 4: fee                = 0x00 (zero — NegRisk geo market, 0% fee)
+  word 5: builder            = 0x00
+  word 6: metadata           = 0x00
+```
+Order and types match the main exchange layout exactly.
+
+**NegRisk-specific events (irrelevant to OrderFilled decoder):**
+The `INegRiskAdapter` contract emits: `PositionsConverted`, `MarketPrepared`, `QuestionPrepared`,
+`PositionSplit`, `PositionsMerge`, `OutcomeReported`, `PayoutRedemption`. These are on the
+**adapter contract** (`0xAdA200001000ef00D07553cEE7006808F895c6F1`), not the exchange. They
+carry no `OrderFilled` data and do not affect our decoder.
+
+**Verdict:** The existing `OrderFilled` decoder written for the main exchange requires **zero
+changes** to decode NegRisk exchange logs. The same `eth_getLogs` call targeting
+`0xe2222...0F59` with topic0 `0xd543adfd...d8ee` and the same 7-word decode recipe applies.
+A unified multi-address log fetch (both exchanges in one `address` array) is safe.
+
+---
 
 ### How to update this file
 On any new verification: change Status, add source URL + date + one-line finding, and write an
