@@ -49,7 +49,7 @@ log = structlog.get_logger(__name__)
 
 
 def _build_getlogs_payload(
-    address: str, from_block: int, to_block: int, topics: list[str] | None = None
+    address: str, from_block: int, to_block: int, topics: list[str | None] | None = None
 ) -> dict[str, Any]:
     """Build the eth_getLogs JSON-RPC payload. Pure (no I/O) so it is unit-testable."""
     log_filter: dict[str, Any] = {
@@ -67,7 +67,7 @@ def _rpc_get_logs(
     address: str,
     from_block: int,
     to_block: int,
-    topics: list[str] | None = None,
+    topics: list[str | None] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch eth_getLogs for *address* over [from_block, to_block] via JSON-RPC.
 
@@ -124,7 +124,7 @@ def _get_logs_range(
     address: str,
     lo: int,
     hi: int,
-    topics: list[str] | None,
+    topics: list[str | None] | None,
 ) -> list[dict[str, Any]]:
     """Fetch one [lo, hi] block range, retrying on rate limits and splitting on size limits.
 
