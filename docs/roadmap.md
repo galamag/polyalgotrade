@@ -4,9 +4,10 @@ The spine of the project. Each phase has a **gate**; we do not advance until it 
 Real money appears only at Phase 5, and only for strategies with a confirmed positive,
 fee-adjusted edge.
 
-**Current position: Phase 0 ✅ + Phase 1 core ✅ → Phase 2 MM backtest pipeline ✅ built & tested
-(offline, 2026-06-07).** The MM **edge verdict is NOT yet established** — the real-data geopolitics
-run is gated (**Phase 2b**: needs an RPC endpoint + a verified Gamma geopolitics query). See
+**Current position: Phase 0 ✅ + Phase 1 ✅ + Phase 2/2b ✅.** The v1 MM **edge verdict is in
+(2026-06-09, ADR [0018](decisions/0018-geopolitics-mm-verdict.md)): DO NOT ADVANCE** — naive symmetric
+MM is gate-failing on real 0%-fee geopolitics (headline loss was mostly a boundary-clamp artifact,
+caught in review); thesis unresolved → **v2 (inventory skew) next.** See
 [`strategies/market-making.md`](strategies/market-making.md),
 [`superpowers/plans/2026-06-07-phase2-market-making.md`](superpowers/plans/2026-06-07-phase2-market-making.md),
 ADR [0013](decisions/0013-phase2-strategy-catalog.md)/[0014](decisions/0014-orderbook-data-and-informed-crossvenue-mm.md)/[0015](decisions/0015-execution-mode-stamped-by-broker.md).
@@ -24,7 +25,8 @@ ADR [0013](decisions/0013-phase2-strategy-catalog.md)/[0014](decisions/0014-orde
   the SDK/fee/endpoint corrections.
 
 ## Phase 1 — Data + cost model + backtest core
-- [ ] Data layer: historical `OrderFilled` (Polygon RPC + Gamma) → normalized schema.
+- [x] Data layer: historical `OrderFilled` (Polygon RPC + Gamma) → normalized schema. ✅ (Phase 2b:
+      V2 decode + enrich + Gamma selection + multi-address fetcher; validated on 21,748 real fills.)
 - [x] **Cost model** (`src/pat/costs/`): dynamic taker fees, maker rebates, gas, ramp — tested.
 - [x] `BacktestBroker` + analytics/verdict (PnL, Sharpe, win-rate).
 - [x] End-to-end smoke: pipeline processes ≥1000 synthetic taker fills net-of-fee; fee_drag > 0;
@@ -42,12 +44,14 @@ ADR [0013](decisions/0013-phase2-strategy-catalog.md)/[0014](decisions/0014-orde
       `Strategy`/`OrderAction` interface, `BacktestBroker.cancel()`, no-look-ahead replay loop, and
       the parameter-sweep runner `scripts/run_mm_backtest.py`. 104 tests green; built per
       [`plans/2026-06-07-phase2-market-making.md`](superpowers/plans/2026-06-07-phase2-market-making.md). ✅
-- [ ] **Phase 2b (GATED):** real geopolitics fetch (needs `POLYGON_RPC_URL` + a verified Gamma
-      geopolitics query) → run the sweep → record the verdict in `strategies/market-making.md`.
-      Backtest fidelity is capped by the **through-trade proxy** (no historical book, ADR
-      [0014](decisions/0014-orderbook-data-and-informed-crossvenue-mm.md)); real validation is paper
-      (Phase 3). Build a **`live book recorder`** early.
-- **Gate (pending Phase 2b):** verdict — **EV > 0 after fees** and **Sharpe > 1.0**? If no → iterate or trash.
+- [x] **Phase 2b ✅ (2026-06-09):** real geopolitics fetch (21,748 fills) → sweep → **verdict: DO NOT
+      ADVANCE v1** (ADR [0018](decisions/0018-geopolitics-mm-verdict.md)). Headline loss was mostly a
+      boundary-clamp artifact (caught by quant + fee-cost review); data layer validated, defects fixed,
+      I9 → PARTIAL. Backtest fidelity still capped by the **through-trade proxy** (no book, ADR
+      [0014](decisions/0014-orderbook-data-and-informed-crossvenue-mm.md)); real validation is paper.
+- **Gate (Phase 2b, 2026-06-09): FAILED for v1** — net < 0 and Sharpe < 1.0 on real data → v1 trashed;
+  iterate to **v2 (inventory skew)** per ADR 0018. (Thesis "MM on 0%-fee geo" not settled — the
+  artifact-corrected run was gate-invalid, n < 1000.)
 
 ## Phase 3 — Paper trading
 - [ ] `PaperBroker` (our own "drawn" sim — Polymarket has no usable testnet) + Kalshi demo.

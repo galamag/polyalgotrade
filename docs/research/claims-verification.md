@@ -25,7 +25,7 @@ unblocked**, with the corrections noted.
 | C3 | Order dropped nonce/feeRateBps/taker; added timestamp/metadata/builder; EIP-712 ver "2" | **PARTIAL** | ✅ ver "2" + full struct confirmed; research field list **incomplete** (omits salt/signer/signatureType) | github ctf-exchange-v2 Structs.sol / Hashing.sol |
 | C4 | SDK `py-clob-client-v2` v1.0.1+; old client dead | **PARTIAL** | py-clob-client-v2 exists but **superseded**; use unified **`polymarket-client`** (py-sdk) | pypi.org; github Polymarket/py-sdk; docs.polymarket.com/dev-tooling/python |
 | C5 | Crypto taker `C·0.07·p·(1−p)`; peak 1.56–1.80% | **PARTIAL** | ✅ formula + 0.07; peak is **exactly 1.75%** at p=0.5 (range was wrong); full category table obtained | docs.polymarket.com/trading/fees |
-| C6 | Geopolitics taker fee = 0% | **VERIFIED** | ✅ "Geopolitical and world events markets are fee-free"; **maker rebate also 0** there | docs.polymarket.com/trading/fees |
+| C6 | Geopolitics taker fee = 0% | **VERIFIED** | ✅ "Geopolitical and world events markets are fee-free"; **maker rebate also 0** there. ⚠️ the per-market 0%-*flag* ≠ on-chain truth — see I9 | docs.polymarket.com/trading/fees |
 | C7 | Maker rebates 25% (20% crypto), daily pUSD, $1 min | **VERIFIED** | ✅ all three confirmed; model as **daily batch credit**, $1/day gate matters on small bankroll | docs.polymarket.com/market-makers/maker-rebates |
 | C8 | Kalshi `round(0.07·p·(1−p),2)`/contract; maker $0 | **PARTIAL** | ✅ 0.07 + shape; ❌ rounding is **CEIL** to $0.0001; ❌ maker fee **0.0175** (not $0) | kalshi fee schedule; docs.kalshi.com/getting_started/fee_rounding |
 | C9 | KZ not blocked on Polymarket (33) or Kalshi (~52) | **VERIFIED** | ✅ KZ absent from both lists (PM 33 @2026-04-23; Kalshi 54 @2025-10-23). Mutable — recheck pre-Phase-5 | help.polymarket.com geographic-restrictions; Kalshi member-agreement notice |
@@ -42,7 +42,7 @@ unblocked**, with the corrections noted.
 | I6 | Polymarket KYC optional ≤7-figure | **VERIFIED** | ✅ User (KZ): site opens no-VPN, **no KYC** at deposit; account is **email/Gmail embedded wallet** (not MetaMask) — see ADR 0011 | user test 2026-06-07 |
 | I7 | Polygon base fee ≥25 gwei; tx ≈ $0.0024 | **PARTIAL** | ✅ gas negligible (~$0.002–0.005); ❌ no confirmed 25-gwei floor — fetch gas live | polygonscan.com/gastracker |
 | I8 | V2 `OrderFilled` event carries maker/taker **addresses** (would enable C1 copy-trading attribution) | **VERIFIED** | ✅ maker (topic2) + taker (topic3) are indexed addresses. ⚠️ V2 event schema differs from V1: has `side`+`tokenId` (NOT `makerAssetId`/`takerAssetId`). Parser needs a raw-log→dict adapter. See ADR 0016. | Polygonscan ABI + GitHub ITrading.sol; live tx 0x5f58d002…c21 on Polygon block 88093791 (2026-06-07) |
-| I9 | Gamma: select geopolitics markets + token_ids; "geopolitics = 0% fee" nuance | **VERIFIED** | ✅ `/events?tag_id=100265` → `markets[].clobTokenIds` (YES/NO). ⚠️ **tag ≠ 0% fee**: select 0%-fee by `feesEnabled=false`/`feeType=null` per market (some geopolitics-tagged markets carry politics_fees 4%). Per-token: `clob.polymarket.com/fee-rate?token_id=`. ~35–40 events. | live gamma-api + clob /fee-rate (2026-06-07); docs gamma-openapi |
+| I9 | Gamma: select geopolitics markets + token_ids; "geopolitics = 0% fee" nuance | **PARTIAL** | ✅ `/events?tag_id=100265` → `markets[].clobTokenIds` (YES/NO). ⚠️ **tag ≠ 0% fee**: select 0%-fee by `feesEnabled=false`/`feeType=null` per market (some geopolitics-tagged markets carry politics_fees 4%). Per-token: `clob.polymarket.com/fee-rate?token_id=`. ~35–40 events. | live gamma-api + clob /fee-rate (2026-06-07); docs gamma-openapi |
 | I10 | NegRisk CTF Exchange (`0xe2222…0F59`) emits **identical** `OrderFilled` event (same topic0, same non-indexed data layout) as main exchange — decoder works unchanged | **VERIFIED** | ✅ NegRisk deploys the SAME `CTFExchange` contract (confirmed Polygonscan source). `Events.sol` `_ORDER_FILLED_TOPIC` = `keccak256("OrderFilled(bytes32,address,address,uint8,uint256,uint256,uint256,uint256,bytes32,bytes32)")` ≡ `0xd543adfd...d8ee`. Live tx `0xcc667e6a…e3968` on NegRisk contract shows topic0 = `0xd543adfd945773f1a62f74f0ee55a5e3b9b1a28262980ba90b1a89f2ea84d8ee` with 7-word data layout (side,tokenId,makerAmountFilled,takerAmountFilled,fee,builder,metadata) byte-for-byte identical. ⚠️ The `INegRiskAdapter` emits additional NegRisk-only events (PositionsConverted, MarketPrepared, etc.) on its own adapter contract — irrelevant to OrderFilled decode. | GitHub raw `Events.sol` + `ITrading.sol` (ctf-exchange-v2 main); Polygonscan `0xe2222…0F59` verified source; live tx `0xcc667e6a64a151718069671341b33335dab5e05cb669f26baae35270b24e3968` (Polygon, 2026-06-08) |
 
 ## Low-trust / measure-ourselves
@@ -284,6 +284,12 @@ This maps V2 to the existing parser's collateral-detection logic without changin
   `geo=0` out of 212k fills. **Must select with `closed=false` AND paginate** (`offset`). Live 0%-fee
   geopolitics is large & liquid: **~2,550 tokens, ~$31M/24h** (Iran/Israel airspace, Hormuz, US-Iran).
   Fixed in `gamma._gamma_get_all_events(closed=False)` (run() uses it).
+- **🔴 on-chain fee ≠ metadata flag (Task-7, 2026-06-08) — downgrades I9 to PARTIAL:** in the
+  21,748-fill geopolitics dataset, **885 fills (4.1%) on 73 of 680 tokens carried a NONZERO on-chain
+  fee** (e.g. "Will Alberta join the US?") — while BOTH Gamma `feesEnabled=false` AND CLOB
+  `/fee-rate base_fee=0` reported 0%. The metadata 0%-flag is **not** a reliable on-chain guarantee.
+  Negligible for the MM verdict ($17 total, on takers; our MM is a maker), but a **taker strategy or
+  live deployment must verify the actual on-chain fee, not the flag.** See ADR 0018.
 
 ### I10 — NegRisk OrderFilled ABI vs main exchange (VERIFIED, 2026-06-08)
 

@@ -1,8 +1,9 @@
 # Strategy: Market Making (first wave)
 
-- **Status:** Backtest pipeline **built & tested offline** (v1, 2026-06-07; branch
-  `phase-2-market-making`, 104 tests green). Real-data EV/Sharpe verdict is **pending (Phase 2b,
-  RPC-gated)**. Full design: spec
+- **Status:** **v1 verdict (2026-06-09): DO NOT ADVANCE** (ADR 0018) — naive symmetric MM is −EV /
+  gate-failing on real 0%-fee geopolitics data; the headline loss was mostly a boundary-clamp
+  artifact (now fixed). Thesis unresolved → **v2 (inventory skew) next.** Backtest pipeline built &
+  tested offline (v1, 2026-06-07). Full design: spec
   `docs/superpowers/specs/2026-06-07-phase2-strategy-catalog-design.md` Section 2.
 - **Roadmap phase:** 2
 - **Owner subagent:** quant-researcher (+ fee-cost-auditor, risk-manager)
@@ -62,11 +63,21 @@ the spread and, where applicable, maker rebates — while paying little/no taker
 
 ## 7. Results
 <!-- RESULTS:START -->
-_No verdict recorded yet — produced by `run_mm_backtest.py --record`._
+| half_spread | n_trades | net_pnl | gross_pnl | fee_drag | inv_value | win_rate | max_dd | sharpe | advance |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.01 | 339 | -32.4014856737513205263026184 | -187.90633520 | 0 | 155.5048495262486794736973816 | 0.451 | 231.59127546 | -0.112 | False |
+| 0.02 | 112 | -25.51291927634503165067674721 | 24.48015867 | 0 | -49.99307794634503165067674721 | 0.527 | 56.02101019 | 0.047 | False |
+| 0.03 | 55 | -15.12581122495062236591060213 | 27.31786607 | 0 | -42.44367729495062236591060213 | 0.545 | 29.46910000 | 0.111 | False |
+| 0.05 | 28 | -11.46877495102483515310510576 | -12.72875563 | 0 | 1.25998067897516484689489424 | 0.500 | 41.06700000 | -0.102 | False |
+
+**Provenance:** json_path=data/raw/geopolitics_88082000_88090000.json, tokens=680, max_n_trades=339
+
+_Caveats (§8): sharpe is per-fill (relative ranking, not annualized); win_rate ~50% by construction for a two-sided MM (lean on net_pnl incl. inventory MtM); sharpe & max_dd are realized-only; fills are a conservative lower bound (through-trade proxy, no order book — real proof is paper, Phase 3)._
+
 <!-- RESULTS:END -->
 
 ## 8. Verdict
-- [ ] EV > 0 after fees?  [ ] Sharpe > 1.0?  [ ] Survives pessimistic fills?
+- [✗] EV > 0 after fees? **No** (net negative on every config).  [✗] Sharpe > 1.0? **No** (per-fill ≤ 0.63).  [✗] Survives pessimistic fills? **n/a — fails the gate.**
 - **Verdict-writing caveats (from the Phase-2 final review — read before filling this in):**
   1. `Sharpe` here is a **per-fill** statistic (mean/stdev of per-fill net contributions) for
      *relative ranking* across the sweep — **not annualized**; do not present it as a conventional
@@ -76,5 +87,19 @@ _No verdict recorded yet — produced by `run_mm_backtest.py --record`._
   3. Sharpe/drawdown are **realized-only** and ignore the terminal inventory mark — a config ending
      with heavy residual inventory can show +net EV but a realized-only Sharpe; weigh both.
   4. Fills are a **lower bound** (through-trade proxy, no order book) — real proof is paper (Phase 3).
-- **Decision:** pending (Phase 2b real-data run). If yes → paper (Phase 3). If no after iteration →
-  trash, pivot per the roadmap triggers.
+- **Verdict (2026-06-09 · ADR 0018): DO NOT ADVANCE v1.** Real data: 21,748 0%-fee geopolitics
+  fills, blocks 88082000–88090000 (~4.4 h), 680 tokens, both V2 exchanges.
+  - **Gate-valid run** (n=1335 @ hs=0.01): net −$129, Sharpe 0.33 — but **adversarially shown to be a
+    boundary-clamp artifact** (68.5% of fills at the 0.01/0.99 clamp; 80% on near-resolved binaries).
+    The "gross +$2041 vs adverse-selection −$2170" framing was an **accounting illusion** — true
+    adverse selection ≈ −$61; −$2096 was held-inventory cost-basis, not loss.
+  - **Artifact-corrected run** (§7 above: boundary guard 0.10 + market-spread liquidation haircut via
+    `costs/`; n=339 @ hs=0.01): net −$32, Sharpe −0.11 — **gate-INVALID (n<1000)**. Removing the clamp
+    cut 75% of fills (near-resolved churn).
+  - **Neither version advances.** Thesis (MM on 0%-fee geopolitics) **unresolved** — corrected margin
+    is thin/noisy and tradeable mid-price geo is too sparse for a gate-valid MM verdict in one window.
+- **Cost sign-off (fee-cost-auditor):** SIGN is honest (survives haircut=0); MAGNITUDE is a soft
+  lower bound. **I9/C6 downgraded → PARTIAL** — `feesEnabled=false` ≠ 0% on-chain (4.1% of fills
+  carried a fee).
+- **Next:** v2 = inventory skew (`fv − γ·inventory`) + boundary guard, on a larger multi-window
+  dataset; vol-adaptive spread second; toxicity/VPIN paper-only. See ADR 0018 follow-ups.
