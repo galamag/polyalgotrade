@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from pat.analytics.wallet_features import WalletFill, derive_wallet_fills
+from pat.analytics.wallet_features import WalletFill, derive_wallet_fills, wallet_fills_from_trades
 from pat.core.types import Side
 
 W = "0x" + "11" * 20  # the wallet under analysis
@@ -151,3 +151,61 @@ def test_mostly_unrealized_pnl_not_skill_cohort() -> None:
         roundtrip_return_median=Decimal("0.05"),
     )
     assert is_skill_cohort(f) is False
+
+
+# ---- wallet_fills_from_trades (data-api path) ----
+
+def _api_trade(
+    *,
+    asset: str,
+    side: str,
+    price: str,
+    size: str,
+    timestamp: int,
+    is_maker: bool = False,
+) -> dict[str, object]:
+    return {
+        "transactionHash": "0xtx",
+        "asset": asset,
+        "side": side,
+        "price": price,
+        "size": size,
+        "timestamp": timestamp,
+        "is_maker": is_maker,
+    }
+
+
+def test_wallet_fills_from_trades_buy_negative_cashflow() -> None:
+    """BUY trade -> negative cashflow; block == timestamp; is_maker passed through."""
+    trade = _api_trade(asset="111", side="BUY", price="0.40", size="10", timestamp=1_700_000_100,
+                       is_maker=True)
+    fills = wallet_fills_from_trades([trade])
+    assert len(fills) == 1
+    f = fills[0]
+    assert f.token_id == "111"
+    assert f.side is Side.BUY
+    assert f.price == Decimal("0.40")
+    assert f.size == Decimal("10")
+    assert f.block == 1_700_000_100
+    assert f.is_maker is True
+    assert f.cashflow == Decimal("-4.0")  # -0.40 * 10
+
+
+def test_wallet_fills_from_trades_sell_positive_cashflow() -> None:
+    """SELL trade -> positive cashflow."""
+    trade = _api_trade(asset="222", side="SELL", price="0.60", size="5", timestamp=1_700_000_200)
+    fills = wallet_fills_from_trades([trade])
+    assert len(fills) == 1
+    f = fills[0]
+    assert f.side is Side.SELL
+    assert f.cashflow == Decimal("3.0")  # +0.60 * 5
+    assert f.is_maker is False  # default
+
+
+def test_wallet_fills_from_trades_skips_zero_size() -> None:
+    """Trades with size == 0 must be silently skipped."""
+    zero = _api_trade(asset="333", side="BUY", price="0.50", size="0", timestamp=1_700_000_300)
+    good = _api_trade(asset="444", side="BUY", price="0.50", size="2", timestamp=1_700_000_400)
+    fills = wallet_fills_from_trades([zero, good])
+    assert len(fills) == 1
+    assert fills[0].token_id == "444"

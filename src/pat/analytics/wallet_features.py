@@ -25,6 +25,37 @@ class WalletFill(BaseModel):
     cashflow: Decimal  # BUY -> negative (USDC out); SELL -> positive (USDC in)
 
 
+def wallet_fills_from_trades(trades: list[dict[str, object]]) -> list[WalletFill]:
+    """Map tagged data-api /trades (each with an `is_maker` flag) onto WalletFill.
+
+    `side` is already the wallet's perspective (BUY=wallet bought). We store the epoch-SECONDS
+    `timestamp` in `block` (a monotonic time/order key reused by compute_wallet_features for
+    hold-gap math; seconds, not blocks — note the unit shift for the data-api path).
+
+    Skips trades where size <= 0.
+    """
+    out: list[WalletFill] = []
+    for t in trades:
+        size = Decimal(str(t["size"]))
+        if size <= 0:
+            continue
+        price = Decimal(str(t["price"]))
+        side = Side.BUY if str(t["side"]).upper() == "BUY" else Side.SELL
+        cashflow = (-price * size) if side is Side.BUY else (price * size)
+        out.append(
+            WalletFill(
+                token_id=str(t["asset"]),
+                side=side,
+                price=price,
+                size=size,
+                block=int(str(t["timestamp"])),
+                is_maker=bool(t.get("is_maker", False)),
+                cashflow=cashflow,
+            )
+        )
+    return out
+
+
 def derive_wallet_fills(events: list[dict[str, object]], wallet: str) -> list[WalletFill]:
     """Project decoded events onto *wallet*'s perspective. Skips events not involving the wallet.
 
