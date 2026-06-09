@@ -288,3 +288,50 @@ otherwise the "edge" is noise + luck. Report the side-by-side so the contrast is
 - **`taker` = operator/zero-address** on some fills → exclude those from the wallet's taker count
   (they are not the wallet's own aggressive trades).
 - One leaderboard snapshot = a point in time; record the query timestamp for reproducibility.
+
+## 19. Post-build review corrections (quant-researcher, 2026-06-09)
+
+A final adversarial review of the built code found the data layer correct (buy/sell direction,
+cashflow sign, decoder, topic encoding) but the **judgment layer** unsound. These corrections
+**supersede** the relevant earlier bullets and are the binding design for the remediation:
+
+- **B1 — enforce the control gate in the recommendation (supersedes §2 / §11).** `_recommend`
+  takes BOTH winners and control. After picking the dominant skill-cohort archetype, it computes
+  that archetype's **median discriminating feature** and the **control group's IQR** for the same
+  feature; it only emits a strategy recommendation if the median falls **outside** the control IQR,
+  else returns "indistinguishable from control + luck → structural (A2/D1)." Discriminating
+  feature per archetype (category-robust where possible, per S3): market-maker → `maker_fill_ratio`;
+  directional-informed → `roundtrip_return_median`; arbitrageur → `flip_rate`; longshot-farmer /
+  resolution-holder → `entry_price_mean` (category-sensitive → caveat in the report). The report
+  MUST print a winners-vs-control feature table (median + IQR per feature).
+- **B2 — skill screen must require net profit and be loss-aware (supersedes §9).** `is_skill_cohort`
+  additionally requires `pnl_proxy > 0`. `top1_token_pnl_share` is redefined as
+  `max(|token_pnl|) / sum(|token_pnl|)` so a dominant **loss** also flags concentration.
+- **B3 — defend against the curPrice look-ahead (supersedes §7 / §9).** Residual is still marked at
+  `curPrice`, but skill eligibility additionally requires `realized_share ≥ 0.30` — i.e. a wallet
+  whose "edge" is almost entirely **unrealized** (hindsight-marked open positions) is **excluded
+  from the skill cohort** and flagged "P&L mostly unrealized → Approach 2 (resolution P&L) needed."
+  Compute a **clean realized/unrealized split** per token: matched round-trip realized P&L =
+  `min(buy_size, sell_size) · (sell_vwap − buy_vwap)`; unrealized = `(buy_size − sell_size) · (mark
+  − buy_vwap)`. (Total `pnl_proxy` is unchanged — only the split, hence `realized_share`, is now
+  principled.) The report shows the realized/unrealized split.
+- **S1 — minimum cohort size (supersedes §13 wiring).** `_recommend` returns an "escalate to
+  Top-100 + 50" verdict unless `len(skill_cohort) ≥ 5` AND the dominant archetype has `≥ 5` wallets.
+- **S2 — robust flip / hold.** A token is "flipped" only if `min(buy_size, sell_size) /
+  max(buy_size, sell_size) ≥ 0.5` (substantial two-sidedness, not a sliver). Hold span =
+  `last_sell_block − first_buy_block` (full round-trip), not first-sell − first-buy.
+- **S4 — V1 gate on the median wallet + observable topic0 (supersedes §6).** `v1_share` = the
+  **median** over wallets of (non-V2-topic0 fills / total), not the pooled total. The fetch dumps a
+  per-wallet `topic0` histogram to `data/raw/wallets/_topic0_histograms.json` so the true V1
+  `OrderFilled` topic0 can be identified before trusting the gate. The numerator is a conservative
+  over-count (includes non-OrderFilled V1 events) → the gate errs toward BUILD_V1_DECODER (safe).
+- **S3 (caveat, not fully fixed) — control population mismatch.** The geopolitics control is a
+  narrow ~8000-block, single-category, 0%-fee window; all-time all-category winners trivially differ
+  on hold-time / entry-price. The B1 gate therefore uses **category-robust** discriminators where
+  possible, and the report **loudly caveats** that a category-matched control (broad V2 resample) is
+  the proper fix (recorded escalation), so a "beats control" result on a category-sensitive feature
+  is not over-trusted.
+- **S5 (caveat) — independent-bet count.** `n_tokens` (distinct ERC-1155 tokenId) over-counts vs
+  distinct `conditionId` (~2 tokens/binary market; paired complement positions are one bet). The
+  report notes `n_tokens ≥ 30 ≈ ≥15 markets`; a conditionId-based count is a follow-up (needs the
+  Gamma token→market map we are not fetching in the lean spike).
