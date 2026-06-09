@@ -49,7 +49,16 @@
    `scripts/run_mm_backtest.py` (`--quote-band`), `src/pat/strategies/market_maker.py` (`quote_band`),
    `src/pat/costs/polymarket.py` (`MARKET_HALF_SPREAD` / `liquidation_haircut`).
 
-## Next action — **Approach 2: resolution-grounded P&L** (ADR 0020); C1 & D3 both open
+## Next action — **PAUSED at a decision point** (user, 2026-06-09)
+Wallet-analysis lean read was INCONCLUSIVE (ADR 0020). The user paused to choose the direction with a
+fresh head. Two honest paths:
+- **(A) Switch angle → a testable-now catalog strategy** (ADR-0013): combinatorial-arb (A2) or
+  UMA-dispute (D1) — no LLM, sidesteps survivorship, backtestable on its own merits. (Leaning note:
+  wallet-copying is structurally survivorship-bound, so a clean structural strategy may be the
+  higher-EV use of effort. directional/news D3 needs the deferred intelligence layer.)
+- **(B) Deepen wallet-analysis → Approach 2 (resolution-grounded P&L)** — details just below.
+
+### If (B): Approach 2 — resolution-grounded P&L; C1 & D3 both open
 The lean (trade-only) wallet read can't judge the winners — their edge is the **resolution payout**,
 invisible to `/trades` (redemptions aren't trades), and the all-time-PnL frame is survivorship-biased.
 Before picking C1 (copy-trading) vs D3 (directional/news):
