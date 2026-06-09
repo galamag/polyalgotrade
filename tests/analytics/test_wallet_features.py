@@ -49,7 +49,11 @@ def test_derive_wallet_skips_events_where_wallet_is_neither_leg() -> None:
 
 
 # ---- Task 4 additions ----
-from pat.analytics.wallet_features import WalletFeatures, compute_wallet_features  # noqa: E402,F401
+from pat.analytics.wallet_features import (  # noqa: E402
+    WalletFeatures,
+    compute_wallet_features,
+    is_skill_cohort,
+)
 
 
 def _wf(token: str, side: Side, price: str, size: str, block: int) -> WalletFill:
@@ -87,7 +91,7 @@ def test_features_held_position_marked_at_curprice() -> None:
 
 
 def test_features_top1_token_share_flags_concentration() -> None:
-    # Token X: +9 pnl; Token Y: +1 pnl -> top1 share 0.9.
+    # Token X: +9 pnl; Token Y: +1 pnl -> top1 share 0.9 (both positive, abs-based same).
     fills = [
         _wf("X", Side.BUY, "0.10", "10", 1), _wf("X", Side.SELL, "1.00", "10", 2),
         _wf("Y", Side.BUY, "0.50", "2", 1), _wf("Y", Side.SELL, "1.00", "2", 2),
@@ -95,3 +99,55 @@ def test_features_top1_token_share_flags_concentration() -> None:
     f = compute_wallet_features("0xw", fills, marks={})
     assert f.n_tokens == 2
     assert f.top1_token_pnl_share == 0.9
+
+
+# ---- Post-build review corrections (B2, B3, S2) ----
+
+def test_top1_share_abs_based_dominant_loss_flags() -> None:
+    # Token A: +9 pnl; Token B: -50 pnl -> abs-based top1 = 50 / (9 + 50) = 50/59.
+    # buy 10@0.10, sell 10@1.0 -> +9; buy 100@1.0, sell 100@0.5 -> -50
+    fills = [
+        _wf("A", Side.BUY, "0.10", "10", 1),
+        _wf("A", Side.SELL, "1.00", "10", 2),
+        _wf("B", Side.BUY, "1.00", "100", 3),
+        _wf("B", Side.SELL, "0.50", "100", 4),
+    ]
+    f = compute_wallet_features("0xw", fills, marks={})
+    assert f.n_tokens == 2
+    expected = 50 / 59
+    assert abs(f.top1_token_pnl_share - expected) < 1e-9
+
+
+def test_sliver_sell_not_flipped() -> None:
+    # Buy 10, sell 1: min/max = 0.1 < 0.5 -> NOT a flip -> flip_rate 0.0
+    fills = [
+        _wf("A", Side.BUY, "0.40", "10", 1),
+        _wf("A", Side.SELL, "0.60", "1", 50),
+    ]
+    f = compute_wallet_features("0xw", fills, marks={})
+    assert f.flip_rate == 0.0
+    assert f.median_hold_blocks == 0
+
+
+def test_net_negative_wallet_not_skill_cohort() -> None:
+    # pnl_proxy < 0 -> is_skill_cohort False regardless of other features.
+    f = WalletFeatures(
+        wallet="0xw", n_fills=200, n_tokens=50, maker_fill_ratio=0.5, flip_rate=0.5,
+        median_hold_blocks=200, entry_price_mean=Decimal("0.5"), turnover_usdc=Decimal("1000"),
+        pnl_proxy=Decimal("-1"),  # net loss
+        realized_share=0.8, top1_token_pnl_share=0.2, positive_token_fraction=0.6,
+        roundtrip_return_median=Decimal("0.05"),
+    )
+    assert is_skill_cohort(f) is False
+
+
+def test_mostly_unrealized_pnl_not_skill_cohort() -> None:
+    # realized_share = 0.1 < 0.30 -> is_skill_cohort False (B3 guard).
+    f = WalletFeatures(
+        wallet="0xw", n_fills=200, n_tokens=50, maker_fill_ratio=0.5, flip_rate=0.5,
+        median_hold_blocks=200, entry_price_mean=Decimal("0.5"), turnover_usdc=Decimal("1000"),
+        pnl_proxy=Decimal("10"), realized_share=0.1,  # mostly unrealized
+        top1_token_pnl_share=0.2, positive_token_fraction=0.6,
+        roundtrip_return_median=Decimal("0.05"),
+    )
+    assert is_skill_cohort(f) is False

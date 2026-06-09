@@ -81,14 +81,20 @@ def _vwap(prices_sizes: list[tuple[Decimal, Decimal]]) -> Decimal:
     return sum((p * s for p, s in prices_sizes), Decimal("0")) / tot
 
 
+def _clamp01(v: float) -> float:
+    return max(0.0, min(1.0, v))
+
+
 def compute_wallet_features(
     wallet: str, fills: list[WalletFill], marks: dict[str, Decimal]
 ) -> WalletFeatures:
     """Aggregate per-wallet behavioral features. `marks` = token_id -> current mark price.
 
-    pnl_proxy per token = realized cashflow + residual_position * mark (mark falls back to the
-    token's last trade price if absent). top1_token_pnl_share / positive_token_fraction use the
-    per-token pnl. roundtrip_return_median / median_hold_blocks use only flipped tokens.
+    pnl_proxy per token = clean realized P&L (matched round-trips) + unrealized (residual *
+    mark). top1_token_pnl_share uses abs(pnl) so a dominant loss also flags concentration.
+    realized_share = realized_total / pnl_proxy (clamped [0,1]).
+    A token is "flipped" only if min(buy_size,sell_size)/max(buy_size,sell_size) >= 0.5
+    (substantial two-sidedness). Hold span = last_sell_block - first_buy_block.
     """
     if not fills:
         return WalletFeatures(
@@ -117,27 +123,52 @@ def compute_wallet_features(
         sells = [(f.price, f.size) for f in tfills if f.side is Side.SELL]
         buys_all.extend(buys)
         turnover += sum((f.price * f.size for f in tfills), Decimal("0"))
-        realized_cash = sum((f.cashflow for f in tfills), Decimal("0"))
-        net_size = sum((f.size if f.side is Side.BUY else -f.size for f in tfills), Decimal("0"))
+
+        buy_size = sum((s for _, s in buys), Decimal("0"))
+        sell_size = sum((s for _, s in sells), Decimal("0"))
+        buy_vwap = _vwap(buys)
+        sell_vwap = _vwap(sells)
+
+        # Clean realized/unrealized split (B3)
+        matched = min(buy_size, sell_size)
+        realized_pnl_token = matched * (sell_vwap - buy_vwap) if (buys and sells) else Decimal("0")
+
+        residual_size = buy_size - sell_size
         last_price = tfills[-1].price
         mark = marks.get(token, last_price)
-        residual_value = net_size * mark
-        token_pnl[token] = realized_cash + residual_value
-        realized_total += realized_cash
-        unrealized_total += residual_value
+        unrealized_pnl_token = residual_size * (mark - buy_vwap)
+
+        token_pnl[token] = realized_pnl_token + unrealized_pnl_token
+        realized_total += realized_pnl_token
+        unrealized_total += unrealized_pnl_token
+
+        # Robust flip: substantial two-sidedness required (S2)
         if buys and sells:
+            min_sz = min(buy_size, sell_size)
+            max_sz = max(buy_size, sell_size)
+            is_flip = (min_sz / max_sz) >= Decimal("0.5") if max_sz > 0 else False
+        else:
+            is_flip = False
+
+        if is_flip:
             flips += 1
-            entry_block = next(f.block for f in tfills if f.side is Side.BUY)
-            exit_block = next(f.block for f in tfills if f.side is Side.SELL)
-            hold_gaps.append(exit_block - entry_block)
-            roundtrips.append(_vwap(sells) - _vwap(buys))
+            buy_blocks = [f.block for f in tfills if f.side is Side.BUY]
+            sell_blocks = [f.block for f in tfills if f.side is Side.SELL]
+            first_buy_block = min(buy_blocks)
+            last_sell_block = max(sell_blocks)
+            hold_gaps.append(last_sell_block - first_buy_block)
+            roundtrips.append(sell_vwap - buy_vwap)
 
     n_tokens = len(by_token)
     pnl_proxy = realized_total + unrealized_total
+
+    # Loss-aware top1_token_pnl_share (B2): uses abs(pnl) so dominant loss also flags
+    abs_pnls = [abs(v) for v in token_pnl.values()]
+    abs_total = sum(abs_pnls, Decimal("0"))
+    top1_share = float(max(abs_pnls) / abs_total) if abs_total > 0 else 0.0
+
+    realized_share = _clamp01(float(realized_total / pnl_proxy)) if pnl_proxy != 0 else 0.0
     positive = [v for v in token_pnl.values() if v > 0]
-    pos_total = sum(positive, Decimal("0"))
-    top1_share = float(max(positive) / pos_total) if pos_total > 0 else 0.0
-    realized_share = float(realized_total / pnl_proxy) if pnl_proxy != 0 else 0.0
 
     return WalletFeatures(
         wallet=wallet,
@@ -149,7 +180,7 @@ def compute_wallet_features(
         entry_price_mean=_vwap(buys_all),
         turnover_usdc=turnover,
         pnl_proxy=pnl_proxy,
-        realized_share=max(0.0, min(1.0, realized_share)),
+        realized_share=realized_share,
         top1_token_pnl_share=top1_share,
         positive_token_fraction=len(positive) / n_tokens,
         roundtrip_return_median=median(roundtrips) if roundtrips else Decimal("0"),
@@ -157,15 +188,22 @@ def compute_wallet_features(
 
 
 _SKILL_MIN_TOKENS = 30          # >= ~15 binary markets — "many independent bets"
-_SKILL_MAX_TOP1_SHARE = 0.40    # no single bet dominates the P&L
+_SKILL_MAX_TOP1_SHARE = 0.40    # no single bet dominates the P&L (abs-based)
 _SKILL_MIN_POSITIVE_FRAC = 0.50  # positive across a majority of tokens
+_SKILL_MIN_REALIZED_SHARE = 0.30  # exclude mostly-unrealized (hindsight-marked) P&L (B3)
 _COPY_MIN_HOLD_BLOCKS = 3       # below this, the move is too fast to follow with our lag
 
 
 def is_skill_cohort(f: WalletFeatures) -> bool:
-    """True if the wallet's P&L looks like repeatable skill, not one lucky jackpot (spec §9)."""
+    """True if the wallet's P&L looks like repeatable skill, not a lucky jackpot (spec §9, B2, B3).
+
+    Requires: net profit, realized_share >= 0.30 (not mostly unrealized), breadth >= 30 tokens,
+    abs-concentration < 0.40, and majority of tokens positive.
+    """
     return (
-        f.n_tokens >= _SKILL_MIN_TOKENS
+        f.pnl_proxy > 0
+        and f.realized_share >= _SKILL_MIN_REALIZED_SHARE
+        and f.n_tokens >= _SKILL_MIN_TOKENS
         and f.top1_token_pnl_share < _SKILL_MAX_TOP1_SHARE
         and f.positive_token_fraction > _SKILL_MIN_POSITIVE_FRAC
     )
