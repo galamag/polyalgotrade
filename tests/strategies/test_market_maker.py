@@ -94,3 +94,75 @@ def test_quote_band_default_zero_keeps_legacy_quoting_at_extremes() -> None:
     mm = _mm(half_spread=Decimal("0.05"))
     actions = mm.on_trade(Decimal("0.99"), Decimal("10"))
     assert len([a for a in actions if isinstance(a, PostOrder)]) == 2
+
+
+def _quotes(actions: list) -> dict:
+    return {a.order.side: a.order.price for a in actions if isinstance(a, PostOrder)}
+
+
+def _set_long(mm: MarketMaker, shares: str) -> None:
+    """Seed fv=0.50 + post quotes, then fill the bid to push inventory long by `shares`."""
+    mm.on_trade(Decimal("0.50"), Decimal("10"))
+    bid_id = next(c for c, s in mm._side.items() if s is Side.BUY)
+    mm.on_fills([Fill(order_id=bid_id, token_id="t", price=Decimal("0.48"),
+                      size=Decimal(shares), fee=Decimal("0"),
+                      liquidity=Liquidity.MAKER, mode="backtest", ts=1)])
+
+
+def test_gamma_long_lowers_both_quotes() -> None:
+    base = _mm(inventory_cap=Decimal("100"), gamma=Decimal("0"))
+    skew = _mm(inventory_cap=Decimal("100"), gamma=Decimal("0.10"))
+    _set_long(base, "50")   # inv_frac = 0.5
+    _set_long(skew, "50")
+    b = _quotes(base.on_trade(Decimal("0.50"), Decimal("10")))
+    s = _quotes(skew.on_trade(Decimal("0.50"), Decimal("10")))
+    assert s[Side.BUY] < b[Side.BUY]
+    assert s[Side.SELL] < b[Side.SELL]
+
+
+def test_skew_delta_long_deepens_bid_only() -> None:
+    base = _mm(inventory_cap=Decimal("100"), skew_delta=Decimal("0"))
+    skew = _mm(inventory_cap=Decimal("100"), skew_delta=Decimal("0.10"))
+    _set_long(base, "50")
+    _set_long(skew, "50")
+    b = _quotes(base.on_trade(Decimal("0.50"), Decimal("10")))
+    s = _quotes(skew.on_trade(Decimal("0.50"), Decimal("10")))
+    assert s[Side.BUY] < b[Side.BUY]       # bid deeper
+    assert s[Side.SELL] == b[Side.SELL]    # ask unchanged
+
+
+def test_skew_zero_identical_to_v1() -> None:
+    plain = _mm(inventory_cap=Decimal("100"))
+    skew = _mm(inventory_cap=Decimal("100"), gamma=Decimal("0"), skew_delta=Decimal("0"))
+    _set_long(plain, "50")
+    _set_long(skew, "50")
+    assert _quotes(plain.on_trade(Decimal("0.50"), Decimal("10"))) == \
+           _quotes(skew.on_trade(Decimal("0.50"), Decimal("10")))
+
+
+def test_inv_frac_clamped_bounds_shift() -> None:
+    mm = _mm(inventory_cap=Decimal("10"), gamma=Decimal("0.10"))
+    mm.on_trade(Decimal("0.50"), Decimal("10"))
+    bid_id = next(c for c, s in mm._side.items() if s is Side.BUY)
+    # inv=+20 > cap=10 -> frac clamped to 1
+    mm.on_fills([Fill(order_id=bid_id, token_id="t", price=Decimal("0.48"),
+                      size=Decimal("20"), fee=Decimal("0"),
+                      liquidity=Liquidity.MAKER, mode="backtest", ts=1)])
+    q = _quotes(mm.on_trade(Decimal("0.50"), Decimal("10")))
+    assert Side.BUY not in q                       # over cap -> only ask posts
+    assert q[Side.SELL] == Decimal("0.42")         # fv_eff=0.50-0.10*1=0.40, ask=0.40+0.02=0.42
+
+
+def test_no_cross_invariant_across_grid() -> None:
+    grid = [Decimal("0"), Decimal("0.05"), Decimal("0.10")]
+    for gamma in grid:
+        for delta in grid:
+            for fv in (Decimal("0.02"), Decimal("0.50"), Decimal("0.98")):
+                for inv in (Decimal("-99"), Decimal("0"), Decimal("99")):
+                    mm = _mm(inventory_cap=Decimal("100"), half_spread=Decimal("0.05"),
+                             quote_band=Decimal("0"), gamma=gamma, skew_delta=delta)
+                    mm.fv = fv
+                    mm.inventory = inv
+                    q = _quotes(mm.on_trade(fv, Decimal("10")))
+                    if Side.BUY in q and Side.SELL in q:
+                        assert q[Side.SELL] - q[Side.BUY] >= mm.tick

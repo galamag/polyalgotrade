@@ -26,6 +26,8 @@ class MarketMaker:
         alpha: Decimal = Decimal("0.3"),
         tick: Decimal = Decimal("0.01"),
         quote_band: Decimal = Decimal("0"),
+        gamma: Decimal = Decimal("0"),
+        skew_delta: Decimal = Decimal("0"),
     ) -> None:
         self.token_id = token_id
         self.half_spread = Decimal(str(half_spread))
@@ -36,6 +38,9 @@ class MarketMaker:
         # Stand aside when fair value is within quote_band of 0/1 (near-resolved binary).
         # 0 (default) = always quote (legacy behaviour).
         self.quote_band = Decimal(str(quote_band))
+        # Inventory skew (ADR 0018 / spec 2026-06-09). 0 = no skew (v1).
+        self.gamma = Decimal(str(gamma))            # mid-shift: fv_eff = fv - gamma*inv_frac
+        self.skew_delta = Decimal(str(skew_delta))  # asymmetric spread on the building side
 
         self.fv: Decimal | None = None
         self.inventory: Decimal = Decimal("0")
@@ -78,8 +83,19 @@ class MarketMaker:
         ):
             return actions
 
-        bid_px = self._clamp(self.fv - self.half_spread)
-        ask_px = self._clamp(self.fv + self.half_spread)
+        inv_frac = self.inventory / self.inventory_cap
+        inv_frac = max(Decimal("-1"), min(Decimal("1"), inv_frac))   # bound the shift
+        fv_eff = self.fv - self.gamma * inv_frac
+        bid_off = self.half_spread + self.skew_delta * max(Decimal("0"), inv_frac)
+        ask_off = self.half_spread + self.skew_delta * max(Decimal("0"), -inv_frac)
+        bid_px = self._clamp(fv_eff - bid_off)
+        ask_px = self._clamp(fv_eff + ask_off)
+        # No-cross postcondition: clamp can collapse them near 0/1 -> force a >=1-tick gap.
+        if ask_px - bid_px < self.tick:
+            if ask_px >= Decimal("1") - self.tick:
+                bid_px = self._clamp(ask_px - self.tick)
+            else:
+                ask_px = self._clamp(bid_px + self.tick)
 
         if self.inventory < self.inventory_cap:  # room to go more long
             self._bid_id = self._new_id("bid")
