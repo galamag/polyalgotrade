@@ -1544,3 +1544,39 @@ git commit -m "spike: wallet-analysis verdict (ADR 0020) + archetype report"
 - **YAGNI:** no resolution fetch, no null-model test, no lag simulation (Approaches 2/3 are
   escalations, not in this plan). No category_mix gate — category is descriptive color only and
   is omitted from the lean classifier (it needs a broad Gamma fetch we are not doing).
+
+---
+
+## PIVOT (2026-06-09): on-chain getLogs → data-api/trades acquisition
+
+**Why:** on-chain `eth_getLogs` over the V2-era range **exploded on hyper-active top wallets** — 1M
+CU burned, **0 wallets completed**, stuck on wallet #1 (top-P&L wallets have 1e5–1e6 fills → the
+result-set bisection recurses into thousands of calls; the V1 `topic0=None` passes worsen it). The
+top-50-by-P&L are all the "expensive" kind, so on-chain getLogs is the wrong tool. Pivoted the
+**acquisition** to keyless `data-api.polymarket.com/trades` (REST pagination, volume-immune). The
+**analytics pipeline (Tasks 3–7 + Task 9 logic) is REUSED unchanged.** On-chain is kept as a later
+**narrow spot-check** (trust-but-verify on 1–2 wallets), not the primary source. Claim **I13**.
+
+**/trades contract (verified):** `?user=&limit=500&offset=N&takerOnly=false` (🔴 `takerOnly`
+defaults TRUE → must pass `false` or lose ~80% of fills). Per-trade: `side`(BUY/SELL, **wallet
+perspective**), `price`, `size`(shares), `asset`(tokenId dec), `conditionId`, `timestamp`(epoch
+**SEC**), `title`/`slug`, `transactionHash`. ~3000-row/wallet cap (HTTP 400). NO maker/taker field
+(→ derive via takerOnly true-vs-false set diff), NO category, NO blockNumber.
+
+**Tasks (replace acquisition Tasks 1–2, 8; analytics Tasks 3–7, 9 reused):**
+- **11b.1** `src/pat/venues/polymarket/trades.py` — `fetch_user_trades` (paginate, cap, stop on
+  empty/400) + `tag_maker_taker` (maker = all − takerOnly). ✅ DONE `1afff62`.
+- **11b.2** `wallet_features.wallet_fills_from_trades(trades)` → `WalletFill` (side direct; `block`←
+  epoch-SEC timestamp; `is_maker` from tag; cashflow). Reuses compute/classify/screen. ✅ DONE `cae6c0a`.
+- **11b.3** `scripts/fetch_wallet_trades.py` — **keyless** driver: leaderboard + control → per wallet
+  fetch BOTH `takerOnly` modes (capped, default `--max-trades 2000`) → `tag_maker_taker` → save
+  `data/raw/wallet_trades/<addr>.json` + `_winners.json`/`_control.json`; idempotent skip-if-exists.
+  No RPC key → AI or user can run.
+- **11b.4** `scripts/run_wallet_analysis.py` — load tagged trades + `wallet_fills_from_trades`
+  (replace decode+derive); `--trades-dir data/raw/wallet_trades`; data-api/positions marks unchanged.
+
+**Caveats carried:** hold-time is now **epoch-SECONDS** (archetype hold thresholds ~150 → ~2.5 min,
+~half the block-count intent — sanity-check vs the observed distribution in the report). **S5**
+(`n_tokens` counts distinct `asset`, not `conditionId`) — `conditionId` IS saved in the trades JSON
+→ cheap future fix, not done now. The leaderboard frame now leans on data-api; the on-chain
+spot-check (narrow getLogs on 1–2 wallets) is the deferred trust step.
