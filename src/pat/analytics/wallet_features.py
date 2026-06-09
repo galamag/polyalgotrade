@@ -172,7 +172,7 @@ def is_skill_cohort(f: WalletFeatures) -> bool:
 
 
 def copyability_proxy(f: WalletFeatures) -> Decimal:
-    """Lean zero-lag copyability = round-trip edge, but 0 if the flip is too fast to follow (§10)."""
+    """Lean zero-lag copyability = round-trip edge, 0 if flip is too fast to follow (§10)."""
     if f.median_hold_blocks < _COPY_MIN_HOLD_BLOCKS:
         return Decimal("0")
     return max(Decimal("0"), f.roundtrip_return_median)

@@ -49,7 +49,7 @@ def test_derive_wallet_skips_events_where_wallet_is_neither_leg() -> None:
 
 
 # ---- Task 4 additions ----
-from pat.analytics.wallet_features import WalletFeatures, compute_wallet_features  # noqa: E402
+from pat.analytics.wallet_features import WalletFeatures, compute_wallet_features  # noqa: E402,F401
 
 
 def _wf(token: str, side: Side, price: str, size: str, block: int) -> WalletFill:
