@@ -6,6 +6,8 @@ tested by monkeypatching it with a static fixture list.
 
 from __future__ import annotations
 
+import pytest
+
 
 def test_fetch_writes_raw(monkeypatch, tmp_path):
     from scripts import fetch_polymarket_history as f
@@ -154,3 +156,26 @@ def test_get_logs_range_splits_on_size_limit(monkeypatch) -> None:
     monkeypatch.setattr(f.time, "sleep", lambda *_: None)
     out = f._get_logs_range(FakeClient(), "rpc", "0xADDR", 0, 10, None)
     assert len(out) == 2  # [0,10] -> [0,5] + [6,10], each small -> 1 result each
+
+
+def test_get_logs_range_fails_fast_on_block_range_cap(monkeypatch) -> None:
+    """A provider block-range cap (e.g. free tier) must fail immediately — no retry, no split."""
+    from scripts import fetch_polymarket_history as f
+
+    calls = {"n": 0}
+
+    class FakeClient:
+        def post(self, url, json):  # noqa: A002
+            calls["n"] += 1
+            return _FakeResp(
+                429,
+                {"error": {"code": -32600, "message": (
+                    "Under the Free tier plan, you can make eth_getLogs requests with up to a 10 "
+                    "block range. Upgrade to PAYG for expanded block range."
+                )}},
+            )
+
+    monkeypatch.setattr(f.time, "sleep", lambda *_: None)
+    with pytest.raises(RuntimeError, match="block-range cap"):
+        f._get_logs_range(FakeClient(), "rpc", "0xADDR", 0, 1000, None)
+    assert calls["n"] == 1  # failed fast on the first response, no 8 retries

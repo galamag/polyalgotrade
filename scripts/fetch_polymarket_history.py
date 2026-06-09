@@ -118,6 +118,18 @@ def _is_rate_limited(status_code: int, detail: Any) -> bool:
     return any(m in text for m in ("429", "compute units per second", "rate limit", "throughput"))
 
 
+# Phrases that signal a provider's HARD eth_getLogs block-range cap (e.g. free-tier "max N blocks").
+# Splitting to satisfy these would mean millions of tiny calls (a CU + time disaster), so we FAIL
+# FAST with guidance instead of retrying or recursing. Distinct from "result set too big" -> split.
+_RANGE_CAP_HINTS = ("up to a", "should work", "expanded", "free tier", "upgrade", "paid plan")
+
+
+def _is_range_cap(detail: Any) -> bool:
+    """True if the error is a fixed provider block-range cap (fail fast, don't retry/split)."""
+    text = str(detail).lower()
+    return "block range" in text and any(h in text for h in _RANGE_CAP_HINTS)
+
+
 def _get_logs_range(
     client: httpx.Client,
     rpc_url: str,
@@ -129,10 +141,11 @@ def _get_logs_range(
     """Fetch one [lo, hi] block range, retrying on rate limits and splitting on size limits.
 
     The JSON body carries the real reason; we parse it (so the cause is visible) and never
-    echo the RPC URL, which embeds the API key. Handling:
-      - HTTP 429 / throughput error  -> exponential backoff, retry the SAME range
-      - size / block-range limit      -> bisect the range and recurse
-      - anything else                 -> raise (redacted)
+    echo the RPC URL, which embeds the API key. Handling (in order):
+      - hard block-range cap (free tier) -> fail fast with guidance (no retry / no split)
+      - result set too big               -> bisect the range and recurse
+      - HTTP 429 / throughput error      -> exponential backoff, retry the SAME range
+      - anything else                    -> raise (redacted)
     """
     last_detail: Any = ""
     for attempt in range(_MAX_RETRIES + 1):
@@ -156,6 +169,22 @@ def _get_logs_range(
         detail = err if err is not None else (response.text[:300] if response.text else "")
         last_detail = detail
 
+        # Hard provider block-range cap -> fail fast (no retry, no pathological splitting).
+        if _is_range_cap(detail):
+            raise RuntimeError(
+                f"eth_getLogs blocked by an RPC block-range cap (free-tier limit?) for blocks "
+                f"[{lo}, {hi}]: {detail}. Use a PAYG / unrestricted RPC endpoint."
+            )
+
+        # Result set too big -> bisect the range and recurse.
+        if any(m in str(detail).lower() for m in _SIZE_LIMIT_MARKERS) and lo < hi:
+            mid = (lo + hi) // 2
+            log.debug("rpc.eth_getLogs.split", from_block=lo, to_block=hi, mid=mid)
+            return _get_logs_range(client, rpc_url, address, lo, mid, topics) + _get_logs_range(
+                client, rpc_url, address, mid + 1, hi, topics
+            )
+
+        # Throughput / rate limit -> exponential backoff, retry the SAME range.
         if _is_rate_limited(response.status_code, detail):
             sleep_s = min(_BACKOFF_CAP, _BACKOFF_BASE * (2**attempt))
             log.debug(
@@ -164,13 +193,6 @@ def _get_logs_range(
             )
             time.sleep(sleep_s)
             continue
-
-        if any(m in str(detail).lower() for m in _SIZE_LIMIT_MARKERS) and lo < hi:
-            mid = (lo + hi) // 2
-            log.debug("rpc.eth_getLogs.split", from_block=lo, to_block=hi, mid=mid)
-            return _get_logs_range(client, rpc_url, address, lo, mid, topics) + _get_logs_range(
-                client, rpc_url, address, mid + 1, hi, topics
-            )
 
         raise RuntimeError(
             f"eth_getLogs failed (HTTP {response.status_code}) for blocks [{lo}, {hi}]: {detail}"

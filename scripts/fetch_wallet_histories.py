@@ -97,6 +97,7 @@ def run(
     control_n: int,
     control_src: Path,
     rpc_url: str | None = None,
+    refresh: bool = False,
 ) -> Path:
     corr_id = str(uuid.uuid4())
     blog = log.bind(corr_id=corr_id, from_block=from_block, to_block=to_block)
@@ -118,13 +119,24 @@ def run(
     all_histograms: dict[str, dict[str, int]] = {}
 
     for wallet in (*winners, *control):
-        wallet_logs = fetch_one_wallet(
-            wallet,
-            rpc_url=effective_rpc,
-            from_block=from_block,
-            to_block=to_block,
-            exchanges_topic0=EXCHANGES,
-        )
+        # Idempotent saved-raw (CU discipline): skip wallets already fetched unless --refresh.
+        # A crashed run resumes for $0, and re-runs cost 0 CU on done wallets. The per-wallet file
+        # is written only after a full successful fetch, so it is never partial.
+        wallet_file = out_dir / f"{wallet}.json"
+        if wallet_file.exists() and not refresh:
+            wallet_logs = json.loads(wallet_file.read_text(encoding="utf-8"))
+            cached = True
+        else:
+            wallet_logs = fetch_one_wallet(
+                wallet,
+                rpc_url=effective_rpc,
+                from_block=from_block,
+                to_block=to_block,
+                exchanges_topic0=EXCHANGES,
+            )
+            wallet_file.write_text(json.dumps(wallet_logs, indent=2), encoding="utf-8")
+            cached = False
+
         hist = topic0_histogram(wallet_logs)
         all_histograms[wallet] = hist
 
@@ -135,10 +147,10 @@ def run(
 
         v2 = hist.get(V2_TOPIC0.lower(), 0)
         v1 = sum(v for k, v in hist.items() if k != V2_TOPIC0.lower())
-        (out_dir / f"{wallet}.json").write_text(
-            json.dumps(wallet_logs, indent=2), encoding="utf-8"
+        blog.info(
+            "wallet.fetched", wallet=wallet, n=len(wallet_logs),
+            v2=v2, v1_or_other=v1, cached=cached,
         )
-        blog.info("wallet.fetched", wallet=wallet, n=len(wallet_logs), v2=v2, v1_or_other=v1)
 
     # Write per-wallet topic0 histograms so V1 topic0 can be identified from observations (S4)
     (out_dir / "_topic0_histograms.json").write_text(
@@ -169,6 +181,8 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--out-dir", type=Path, default=Path("data/raw/wallets"))
     p.add_argument("--rpc-url", type=str, default=None)
+    p.add_argument("--refresh", action="store_true",
+                   help="Re-fetch wallets even if a saved <addr>.json already exists.")
     return p.parse_args()
 
 
@@ -192,5 +206,6 @@ if __name__ == "__main__":
         control_n=args.control_n,
         control_src=args.control_src,
         rpc_url=args.rpc_url,
+        refresh=args.refresh,
     )
     print(result)  # noqa: T201
