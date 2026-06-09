@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 import sys
 from collections import Counter
 from decimal import Decimal
@@ -24,6 +25,7 @@ import structlog  # noqa: E402
 
 from pat.analytics.wallet_archetype import classify  # noqa: E402
 from pat.analytics.wallet_features import (  # noqa: E402
+    WalletFeatures,
     compute_wallet_features,
     copyability_proxy,
     derive_wallet_fills,
@@ -34,6 +36,16 @@ from pat.data.polymarket_on_chain import decode_v2_orderfilled  # noqa: E402
 DATA_API = "https://data-api.polymarket.com"
 _REQUEST_TIMEOUT = 30  # seconds
 log = structlog.get_logger(__name__)
+
+# Discriminating feature per archetype for the control-gate (B1, S3).
+# Category-robust where possible; category-sensitive ones are loudly caveated in the report.
+_ARCHETYPE_DISC_FEAT: dict[str, str] = {
+    "market-maker": "maker_fill_ratio",
+    "directional-informed": "roundtrip_return_median",
+    "arbitrageur": "flip_rate",
+    "longshot-farmer": "entry_price_mean",
+    "resolution-holder": "entry_price_mean",
+}
 
 
 def _data_api_marks(wallet: str) -> dict[str, Decimal]:
@@ -66,21 +78,106 @@ def archetype_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     return dict(Counter(r["archetype"] for r in rows))
 
 
-def _recommend(winners: list[dict[str, Any]]) -> str:
-    """Apply the pre-registered decision rule (spec §2) to the skill cohort."""
+def _feat_float(features: WalletFeatures, feat: str) -> float:
+    """Extract a feature as float (handles Decimal fields)."""
+    return float(getattr(features, feat))
+
+
+def _recommend(winners: list[dict[str, Any]], control: list[dict[str, Any]]) -> str:
+    """Apply the pre-registered decision rule (spec §2, B1, S1) to the skill cohort.
+
+    Requires len(skill_cohort) >= 5 and dominant archetype >= 5, else escalates.
+    Enforces the control gate: if the discriminating feature median falls inside the
+    control IQR, the archetype is indistinguishable from ordinary trading + luck.
+    """
     skilled = [r for r in winners if r["skill"]]
+
+    # S1 — minimum cohort size
+    if len(skilled) < 5:
+        return (
+            "Skill cohort too small (<5) -> escalate to Top-100 + 50 (spec §13)."
+        )
+
     counts = Counter(r["archetype"] for r in skilled)
-    if not skilled:
-        return "No skill-cohort winners (P&L luck-dominated) -> structural strategies (A2/D1)."
     top = counts.most_common(1)[0][0]
-    copyable = any(r["copyability"] > Decimal("0") for r in skilled if r["archetype"] == top)
+    if counts[top] < 5:
+        return (
+            "Skill cohort too small (<5) -> escalate to Top-100 + 50 (spec §13)."
+        )
+
+    # B1 — control gate: discriminating feature must fall outside control IQR
+    feat = _ARCHETYPE_DISC_FEAT.get(top, "maker_fill_ratio")
+    top_rows = [r for r in skilled if r["archetype"] == top]
+    cand_vals = [_feat_float(r["features"], feat) for r in top_rows]
+    cand_median = statistics.median(cand_vals)
+
+    ctrl_vals = [_feat_float(r["features"], feat) for r in control]
+    gate_note = ""
+    inside_iqr = False
+    if len(ctrl_vals) < 4:
+        gate_note = " (control too small for IQR — gate skipped)"
+    else:
+        qs = statistics.quantiles(ctrl_vals, n=4)
+        q1, q3 = qs[0], qs[2]
+        if q1 <= cand_median <= q3:
+            inside_iqr = True
+
+    if inside_iqr:
+        return (
+            f"Dominant archetype '{top}' is indistinguishable from control "
+            f"(median {feat} inside control IQR) -> survivorship/luck, "
+            f"no cheap edge -> structural (A2/D1)."
+        )
+
+    # Archetype-specific recommendation (outside IQR or gate skipped)
+    copyable = any(r["copyability"] > Decimal("0") for r in top_rows)
+    suffix = gate_note
+
     if top == "directional-informed" and not copyable:
-        return "Winners are directional-informed but not copyable -> directional/news (D3)."
+        return (
+            f"Winners are directional-informed but not copyable -> directional/news (D3).{suffix}"
+        )
     if top == "market-maker":
-        return "Winners are market-makers -> revisit MM only with an order book (ADR 0014)."
+        return (
+            f"Winners are market-makers -> revisit MM only with an order book (ADR 0014).{suffix}"
+        )
     if copyable:
-        return f"Skilled, copyable '{top}' archetype -> C1 copy-trading; next run Approach 3 (sim)."
-    return f"Dominant skilled archetype '{top}' is not cheaply copyable -> see §2 / structural."
+        return (
+            f"Skilled, copyable '{top}' archetype -> C1 copy-trading; "
+            f"next run Approach 3 (sim).{suffix}"
+        )
+    return (
+        f"Dominant skilled archetype '{top}' is not cheaply copyable -> see §2 / structural."
+        f"{suffix}"
+    )
+
+
+def _feature_table(winners: list[dict[str, Any]], control: list[dict[str, Any]]) -> str:
+    """Markdown table: winners-median vs control-median vs control-IQR per key feature."""
+    feats = [
+        "maker_fill_ratio", "flip_rate", "median_hold_blocks",
+        "entry_price_mean", "roundtrip_return_median", "realized_share", "pnl_proxy",
+    ]
+
+    def _vals(rows: list[dict[str, Any]], f: str) -> list[float]:
+        return [_feat_float(r["features"], f) for r in rows]
+
+    lines = [
+        "| Feature | Winners median | Control median | Control IQR (Q1..Q3) |",
+        "|---|---|---|---|",
+    ]
+    for f in feats:
+        wv = _vals(winners, f)
+        cv = _vals(control, f)
+        w_med = f"{statistics.median(wv):.4f}" if wv else "n/a"
+        c_med = f"{statistics.median(cv):.4f}" if cv else "n/a"
+        if len(cv) >= 4:
+            qs = statistics.quantiles(cv, n=4)
+            c_iqr = f"{qs[0]:.4f}..{qs[2]:.4f}"
+        else:
+            c_iqr = "n/a (too few)"
+        lines.append(f"| {f} | {w_med} | {c_med} | {c_iqr} |")
+    return "\n".join(lines)
 
 
 def render_report(
@@ -90,6 +187,17 @@ def render_report(
     lines = ["# Wallet Behavioral Analysis — Results", ""]
     lines.append(f"**Provenance:** {provenance} · V1 share = {v1_share:.1%}")
     lines.append("")
+
+    # Per-group realized_share medians (B3 transparency)
+    def _med_realized(rows: list[dict[str, Any]]) -> str:
+        vals = [r["features"].realized_share for r in rows]
+        return f"{statistics.median(vals):.3f}" if vals else "n/a"
+
+    lines.append(
+        f"**Realized share (median):** winners = {_med_realized(winners)}, "
+        f"control = {_med_realized(control)}"
+    )
+    lines.append("")
     lines.append("## Archetype counts (winners)")
     for arch, n in sorted(archetype_counts(winners).items(), key=lambda kv: -kv[1]):
         lines.append(f"- {arch}: {n}")
@@ -98,7 +206,18 @@ def render_report(
     for arch, n in sorted(archetype_counts(control).items(), key=lambda kv: -kv[1]):
         lines.append(f"- {arch}: {n}")
     lines.append("")
-    lines.append(f"## Recommendation\n\n{_recommend(winners)}")
+    lines.append("## Winners vs Control Feature Table")
+    lines.append("")
+    lines.append(_feature_table(winners, control))
+    lines.append("")
+    lines.append(
+        "> **Caveat:** control is V2-geopolitics, single-category, narrow window. "
+        "Differences on category-sensitive features (entry_price_mean, median_hold_blocks) "
+        "are NOT trustworthy as evidence of edge. A category-matched control is a recorded "
+        "escalation (spec §19 S3)."
+    )
+    lines.append("")
+    lines.append(f"## Recommendation\n\n{_recommend(winners, control)}")
     return "\n".join(lines)
 
 
