@@ -131,6 +131,37 @@ def test_skew_delta_long_deepens_bid_only() -> None:
     assert s[Side.SELL] == b[Side.SELL]    # ask unchanged
 
 
+def _set_short(mm: MarketMaker, shares: str) -> None:
+    """Seed fv=0.50 + post quotes, then fill the ask to push inventory short by `shares`."""
+    mm.on_trade(Decimal("0.50"), Decimal("10"))
+    ask_id = next(c for c, s in mm._side.items() if s is Side.SELL)
+    mm.on_fills([Fill(order_id=ask_id, token_id="t", price=Decimal("0.52"),
+                      size=Decimal(shares), fee=Decimal("0"),
+                      liquidity=Liquidity.MAKER, mode="backtest", ts=1)])
+
+
+def test_gamma_short_raises_both_quotes() -> None:
+    base = _mm(inventory_cap=Decimal("100"), gamma=Decimal("0"))
+    skew = _mm(inventory_cap=Decimal("100"), gamma=Decimal("0.10"))
+    _set_short(base, "50")   # inv_frac = -0.5
+    _set_short(skew, "50")
+    b = _quotes(base.on_trade(Decimal("0.50"), Decimal("10")))
+    s = _quotes(skew.on_trade(Decimal("0.50"), Decimal("10")))
+    assert s[Side.BUY] > b[Side.BUY]
+    assert s[Side.SELL] > b[Side.SELL]
+
+
+def test_skew_delta_short_deepens_ask_only() -> None:
+    base = _mm(inventory_cap=Decimal("100"), skew_delta=Decimal("0"))
+    skew = _mm(inventory_cap=Decimal("100"), skew_delta=Decimal("0.10"))
+    _set_short(base, "50")
+    _set_short(skew, "50")
+    b = _quotes(base.on_trade(Decimal("0.50"), Decimal("10")))
+    s = _quotes(skew.on_trade(Decimal("0.50"), Decimal("10")))
+    assert s[Side.SELL] > b[Side.SELL]     # ask deeper (higher) — sell less eagerly
+    assert s[Side.BUY] == b[Side.BUY]      # bid unchanged
+
+
 def test_skew_zero_identical_to_v1() -> None:
     plain = _mm(inventory_cap=Decimal("100"))
     skew = _mm(inventory_cap=Decimal("100"), gamma=Decimal("0"), skew_delta=Decimal("0"))
