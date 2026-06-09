@@ -10,8 +10,13 @@ MM is gate-failing on real 0%-fee geopolitics (headline loss was mostly a bounda
 caught in review); thesis unresolved → **v2 skew spike (ADR 0019) = PIVOT → MM shelved**.
 **Wallet-analysis spike (ADR [0020](decisions/0020-wallet-analysis-verdict.md)): lean read
 INCONCLUSIVE** — top-50 winners look directional buy-and-hold, but that is survivorship-tautological
-and trade-only P&L can't see resolution payouts → **next: Approach 2 (resolution-grounded P&L)**
-before choosing copy-trading (C1) vs directional/news (D3). See
+and trade-only P&L can't see resolution payouts. **Direction decided (2026-06-10, ADR
+[0021](decisions/0021-post-wallet-spike-direction.md)): sequenced hybrid** — Step 1 = Approach 2
+(resolution-grounded P&L) on the saved 75 wallets as a time-boxed **concentration screen** with a
+pre-registered kill criterion (< 5/50 diversified → branch B closes, C1 archived); Step 2 = **A2
+combinatorial-arb feasibility scanner** (net of fees + gas; gas/slippage routed through `costs/`
+first), started early for calendar data; Step 3 conditional on the kill criterion. D1 (UMA-dispute)
+deprioritized (can't meet the §6 n≥1000 gate). See
 [`strategies/market-making.md`](strategies/market-making.md),
 [`superpowers/plans/2026-06-07-phase2-market-making.md`](superpowers/plans/2026-06-07-phase2-market-making.md),
 ADR [0013](decisions/0013-phase2-strategy-catalog.md)/[0014](decisions/0014-orderbook-data-and-informed-crossvenue-mm.md)/[0015](decisions/0015-execution-mode-stamped-by-broker.md).
@@ -58,8 +63,10 @@ ADR [0013](decisions/0013-phase2-strategy-catalog.md)/[0014](decisions/0014-orde
   artifact-corrected run was gate-invalid, n < 1000.) **v2 skew spike (ADR 0019) also failed** — skew
   cut toxic inventory but net never reached ≥0 at either spread → **MM SHELVED.** Wallet-analysis
   spike (ADR [0020](decisions/0020-wallet-analysis-verdict.md)) = **lean read INCONCLUSIVE**
-  (survivorship-tautological + trade-only P&L can't see resolution payouts) → next = **Approach 2
-  (resolution-grounded P&L)** to decide copy-trading (C1) vs directional/news (D3).
+  (survivorship-tautological + trade-only P&L can't see resolution payouts) → direction set by ADR
+  [0021](decisions/0021-post-wallet-spike-direction.md): **sequenced hybrid** — Approach 2
+  concentration screen (kill criterion pre-registered) → A2 feasibility scanner → conditional
+  non-survivorship build; D1 deprioritized (§6 n≥1000 gate unreachable).
 
 ## Phase 3 — Paper trading
 - [ ] `PaperBroker` (our own "drawn" sim — Polymarket has no usable testnet) + Kalshi demo.

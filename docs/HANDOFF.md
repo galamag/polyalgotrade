@@ -4,7 +4,7 @@
 > git-versioned session handoff (unlike `.remember/remember.md`, which the remember plugin empties
 > on start and is not in git). **Update + commit this file at each session end.**
 
-**Last updated:** 2026-06-09 · **Branch:** `main` (wallet-analysis verdict ADR 0020 committed; check `git log`/`git status` for sync).
+**Last updated:** 2026-06-10 · **Branch:** `main` (direction decided: ADR 0021 sequenced hybrid; check `git log`/`git status` for sync).
 
 ## Where we are
 - **Phase 0 ✅** claims · **Phase 1 ✅** data + cost model + backtest core · **Phase 2 ✅** MM backtest pipeline.
@@ -49,29 +49,32 @@
    `scripts/run_mm_backtest.py` (`--quote-band`), `src/pat/strategies/market_maker.py` (`quote_band`),
    `src/pat/costs/polymarket.py` (`MARKET_HALF_SPREAD` / `liquidation_haircut`).
 
-## Next action — **PAUSED at a decision point** (user, 2026-06-09)
-Wallet-analysis lean read was INCONCLUSIVE (ADR 0020). The user paused to choose the direction with a
-fresh head. Two honest paths:
-- **(A) Switch angle → a testable-now catalog strategy** (ADR-0013): combinatorial-arb (A2) or
-  UMA-dispute (D1) — no LLM, sidesteps survivorship, backtestable on its own merits. (Leaning note:
-  wallet-copying is structurally survivorship-bound, so a clean structural strategy may be the
-  higher-EV use of effort. directional/news D3 needs the deferred intelligence layer.)
-- **(B) Deepen wallet-analysis → Approach 2 (resolution-grounded P&L)** — details just below.
-
-### If (B): Approach 2 — resolution-grounded P&L; C1 & D3 both open
-The lean (trade-only) wallet read can't judge the winners — their edge is the **resolution payout**,
-invisible to `/trades` (redemptions aren't trades), and the all-time-PnL frame is survivorship-biased.
-Before picking C1 (copy-trading) vs D3 (directional/news):
-1. **Approach 2 — resolution-grounded P&L:** join each saved trade's `conditionId` → Gamma resolution
-   (winning outcome) → compute TRUE realized P&L incl. redemption payouts; re-screen skill vs luck.
-   Reuses the saved 75-wallet dataset (`data/raw/wallet_trades/`) + the analytics pipeline.
-2. **Non-survivorship sample:** rank candidates **at entry** (wallets active in a past market set),
-   not by all-time outcome, so directional *losers* are visible.
-3. **Then** decide C1 vs D3; if C1 → **Approach 3** (replay with our lag + taker fee + slippage).
+## Next action — **direction DECIDED: sequenced hybrid (ADR 0021, 2026-06-10)**
+Neither pure (A) catalog-switch nor pure (B) full Approach 2 — a **sequenced hybrid with
+pre-registered kill criteria** (user + Cowork advisor session). Full decision:
+`docs/decisions/0021-post-wallet-spike-direction.md`. Summary:
+1. **Step 1 (time-box 1–2 sessions): Approach 2 on the saved 75 wallets** — join each saved
+   trade's `conditionId` → Gamma resolution → TRUE realized P&L incl. redemption payouts.
+   Deliverable = a **concentration screen** (systematic many-market P&L vs 1–3-bet whale), NOT a
+   C1/D3 pick. Carried fixes ride along: S5 (`n_tokens` by `conditionId` — field already in the
+   JSON) + on-chain spot-check of `/trades` on 1–2 wallets (I13 trust step).
+   **Kill criterion (pre-registered):** < 5 of 50 top wallets diversified (resolution P&L > 0,
+   ≥ 10 independent conditionIds, top1_share < 0.5) → branch (B) closes ENTIRELY (no
+   non-survivorship build, C1 archived via follow-up ADR). ≥ 5 → expensive half justified.
+2. **Step 2: A2 combinatorial-arb feasibility scanner** (read-only, current markets; net of fees
+   + gas). Prerequisite: route **gas + slippage through `src/pat/costs/`** (backlog item, now
+   forced). Starts early regardless of Step 1's outcome — it accrues irreplaceable calendar data.
+3. **Step 3 (conditional):** kill passed → non-survivorship sample + persistence (then Approach 3
+   for C1); failed → full focus on A2.
+**D1 (UMA-dispute) deprioritized** as first candidate — dispute frequency can't meet the §6
+n≥1000 gate; stays in the ADR 0013 catalog as opportunistic-later.
+Workflow for Step 1: **brainstorm → writing-plans → subagent-driven TDD** (nothing implemented
+before a committed ADR + plan — ADR 0021 is committed; the plan is next).
 Reuse (keyless): `pat.venues.polymarket.trades` (`fetch_user_trades`, `tag_maker_taker`),
 `pat.venues.polymarket.leaderboard`, `pat.analytics.wallet_features`/`wallet_archetype`/`wallet_control`,
-`scripts/fetch_wallet_trades.py` + `scripts/run_wallet_analysis.py`. (On-chain `fetch_wallet_histories.py`
-stays as the deferred narrow spot-check; never use it for full active-wallet history — getLogs explodes.)
+`scripts/fetch_wallet_trades.py` + `scripts/run_wallet_analysis.py`. Saved trade rows carry
+`conditionId`, `outcome`, `outcomeIndex`. (On-chain `fetch_wallet_histories.py` stays as the
+deferred narrow spot-check; never use it for full active-wallet history — getLogs explodes.)
 
 **Open backlog (recorded, not lost):**
 - Golden raw-log fixture (plan Task 7 Step 4b) — still pending; needs one tiny raw fetch
