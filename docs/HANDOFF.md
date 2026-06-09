@@ -15,8 +15,12 @@
     `quant-researcher` + `fee-cost-auditor` proved it was **mostly a boundary-clamp artifact** (80% of
     fills on near-resolved 0/1 binaries) + an **accounting illusion** (the "−$2170 adverse selection"
     was inventory cost-basis; true adverse selection ≈ −$61). Artifact-corrected run (boundary guard +
-    market-spread haircut): net −$32 but **gate-invalid (n=339<1000)**. Neither advances; **thesis
-    unresolved** → v2.
+    market-spread haircut): net −$32 but **gate-invalid (n=339<1000)**.
+  - **v2 inventory-skew spike (ADR 0019) → PIVOT.** γ mid-shift + δ asym-spread reduce toxic inventory
+    (resid 1223→587, gross −188→−67 at hs=0.01) but do NOT move net to ≥0 (hs=0.01 ≈ −$43, hs=0.03 ≈
+    −$15 across all γ/δ); the v1 −$32 leaned on a lucky residual mark that skew flattens away. 0%-fee
+    geo = informed flow → **MM SHELVED** (revisit only with an order book in paper). Skew code stays
+    (default 0 = v1); 144 tests green.
   - **Defects found & fixed this session** (all committed, 133 tests green, ruff+mypy clean):
     Gamma live-selection (`closed=false`+pagination — default page returned dead 2024 markets);
     `python scripts/...` path-run import; eth_getLogs **auto-split** on 10k cap + **429 retry/backoff**
@@ -36,30 +40,36 @@
    `scripts/run_mm_backtest.py` (`--quote-band`), `src/pat/strategies/market_maker.py` (`quote_band`),
    `src/pat/costs/polymarket.py` (`MARKET_HALF_SPREAD` / `liquidation_haircut`).
 
-## Next action — **v2 market maker** (new brainstorm → spec → plan cycle)
-The naive symmetric MM is trashed; the thesis (MM on 0%-fee geopolitics) is NOT settled. Per ADR 0018:
-1. **Brainstorm v2** (superpowers:brainstorming): **inventory skew** `fv − γ·inventory` (priority 1,
-   testable in-harness) + boundary guard (already in); **vol-adaptive spread** (priority 2, testable);
-   **order-flow toxicity / VPIN** = **paper-only** (no aggressor side / order book in our stream).
-2. **Data:** test v2 on a **larger, multi-window dataset** (≥2–3 independent days) — mid-price geo is
-   thin (~339 MM fills / 4.4 h); the boundary guard cuts ~75% of raw fills. Reuse `--fast-ts`.
-3. **Compare every v2 result against the v1 verdict** (ADR 0018 numbers) — same gate.
+## Next action — **pivot off MM → top-50 wallet behavioral analysis** (ADR 0019)
+MM is shelved (v1 trashed, v2 skew spike = pivot). Per ADR 0018/0019, let the *winners'* on-chain
+behavior pick the next strategy before committing to a build:
+1. **Brainstorm the wallet-analysis spike** (superpowers:brainstorming): rank top wallets by P&L
+   (Polymarket data-api/leaderboard — verify the endpoint via `claims-verifier` first), then pull each
+   wallet's full V2 `OrderFilled` history via **topic-filtered** `eth_getLogs` (maker = `topics[2]`,
+   taker = `topics[3]` are indexed → sparse → huge block ranges → ~110k CU for 50 wallets).
+2. Classify each into an archetype (market-maker / directional-informed / longshot-farmer /
+   resolution-holder / arbitrageur) from behavioral features (maker/taker ratio, hold-vs-flip, entry
+   timing vs price moves, category, price levels). 🔴 survivorship bias — winners may be un-copyable.
+3. The result steers the next *real* strategy (likely directional/news or copy-trading, ADR-0013
+   catalog). Reuse the existing decoder/fetcher (`--fast-ts`, auto-split, 429-retry).
 
 **Open backlog (recorded, not lost):**
 - Golden raw-log fixture (plan Task 7 Step 4b) — still pending; needs one tiny raw fetch
   (`fetch_polymarket_history.py --from-block B --to-block B+50`) → `tests/data/fixtures/orderfilled_raw_v2.json` + decode assertion.
 - Cost model: route **gas + slippage** line items through `costs/`; thinness/tail-aware haircut if v2 residuals land near 0/1.
 - Taker-strategy / live: **verify on-chain fee, not the metadata flag** (I9 PARTIAL).
-- Exploratory (not roadmap-committed): top-50 **wallet behavioral analysis** (C1 — maker/taker
-  indexed → ~110k CU for 50 wallets' full history); **news-driven directional** "become-the-informed-flow" (§4 intelligence layer, Phase 4, paper-first).
+- **MM revisit** only with an order-book recorder in paper (ADR 0014) — not the no-book backtest.
+- **news-driven directional** "become-the-informed-flow" (§4 intelligence layer, Phase 4, paper-first)
+  — a candidate after the wallet analysis points a direction.
 
 ## Non-obvious gotchas (durable)
 - 🔴 **Gamma selection MUST use `closed=false` + pagination** — the default `tag_id` page returns ~100
   resolved **2024** markets (Gamma caps ~100/page); their tokens never trade in a recent window → geo=0.
 - 🔴 **`feesEnabled=false` (and CLOB `/fee-rate=0`) ≠ 0% on-chain** (I9 PARTIAL). For a maker it's moot;
   a taker/live must read the real on-chain fee.
-- 🔴 **Backtest inventory accounting:** "gross spread vs adverse-selection inventory" is misleading —
-  the inventory mark is mostly cost-basis. Report **residual-vs-entry** for true adverse selection.
+- 🔴 **Backtest inventory accounting:** do NOT call `inventory_value` "adverse selection" — it is mostly
+  cost-basis. `net_pnl` (= gross + inv − fee) is the honest top line; report the gross/inv split +
+  residual-share count to see *why* net moved. (A "residual-vs-entry" figure is the debunked illusion.)
 - **RPC:** scripts read `POLYGON_RPC_URL` from env (no python-dotenv) — `export` it or `--rpc-url`. Main
   exchange is dense (~106 OrderFilled/block) → getLogs auto-splits + 429-retries; `--fast-ts` skips the
   per-block timestamp RPC (block order == time order, fine for the backtest's sort). 🔴 **never read `.env`.**

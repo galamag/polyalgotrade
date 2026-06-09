@@ -1,10 +1,10 @@
 # Strategy: Market Making (first wave)
 
-- **Status:** **v1 verdict (2026-06-09): DO NOT ADVANCE** (ADR 0018) — naive symmetric MM is −EV /
-  gate-failing on real 0%-fee geopolitics data; the headline loss was mostly a boundary-clamp
-  artifact (now fixed). Thesis unresolved → **v2 (inventory skew) next.** Backtest pipeline built &
-  tested offline (v1, 2026-06-07). Full design: spec
-  `docs/superpowers/specs/2026-06-07-phase2-strategy-catalog-design.md` Section 2.
+- **Status:** **MM SHELVED (2026-06-09).** v1 (ADR 0018): naive symmetric MM gate-failed on real
+  0%-fee geopolitics (headline loss mostly a boundary-clamp artifact, fixed). v2 inventory-skew spike
+  (ADR 0019): skew reduces toxic inventory but does **not** create +EV → **PIVOT** to wallet-analysis
+  / directional. MM revisit only with an order book in paper (ADR 0014). Skew code stays (default 0 =
+  v1). Full design: spec `docs/superpowers/specs/2026-06-07-phase2-strategy-catalog-design.md` §2.
 - **Roadmap phase:** 2
 - **Owner subagent:** quant-researcher (+ fee-cost-auditor, risk-manager)
 
@@ -101,5 +101,11 @@ _Caveats (§8): sharpe is per-fill (relative ranking, not annualized); win_rate 
 - **Cost sign-off (fee-cost-auditor):** SIGN is honest (survives haircut=0); MAGNITUDE is a soft
   lower bound. **I9/C6 downgraded → PARTIAL** — `feesEnabled=false` ≠ 0% on-chain (4.1% of fills
   carried a fee).
-- **Next:** v2 = inventory skew (`fv − γ·inventory`) + boundary guard, on a larger multi-window
-  dataset; vol-adaptive spread second; toxicity/VPIN paper-only. See ADR 0018 follow-ups.
+- **v2 update (2026-06-09 · ADR 0019): inventory-skew spike = PIVOT.** Skew (γ mid-shift + δ asym
+  spread) reduces residual toxic inventory (resid 1223→587, gross −188→−67 at hs=0.01) but does NOT
+  move net to ≥0 on the existing data (hs=0.01 ≈ −$43, hs=0.03 ≈ −$15 across all γ/δ). The v1 −$32
+  leaned on a lucky favourable residual mark that skew flattens away. 0%-fee geo is informed-flow-
+  dominated → passive MM, even skewed, is marginal/negative. **MM shelved** (revisit only with an
+  order book in paper).
+- **Next (pivot):** top-50 wallet behavioral analysis (what the winners actually do) → then
+  directional/news or copy-trading per ADR-0013 catalog.

@@ -3,7 +3,8 @@
 Fair value = EWMA of observed trades.  Symmetric quotes fv ± half_spread, resting
 MAKER (GTC).  At the inventory cap, quote only the inventory-reducing side.
 Edge = pure spread − adverse selection (geopolitics: 0% fee, 0 rebate).
-Inventory-skew (Avellaneda–Stoikov) is deferred to v2 (YAGNI).
+Inventory-skew (v2): `gamma` mid-shift (fv − γ·inv_frac) + `skew_delta` asymmetric spread;
+default 0 = v1 behaviour. Stand-aside `quote_band` boundary guard. See ADR 0018 / spec 2026-06-09.
 """
 
 from __future__ import annotations

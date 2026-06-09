@@ -7,7 +7,7 @@ fee-adjusted edge.
 **Current position: Phase 0 ✅ + Phase 1 ✅ + Phase 2/2b ✅.** The v1 MM **edge verdict is in
 (2026-06-09, ADR [0018](decisions/0018-geopolitics-mm-verdict.md)): DO NOT ADVANCE** — naive symmetric
 MM is gate-failing on real 0%-fee geopolitics (headline loss was mostly a boundary-clamp artifact,
-caught in review); thesis unresolved → **v2 (inventory skew) next.** See
+caught in review); thesis unresolved → **v2 skew spike (ADR 0019) = PIVOT → MM shelved**, pivot to wallet-analysis / directional. See
 [`strategies/market-making.md`](strategies/market-making.md),
 [`superpowers/plans/2026-06-07-phase2-market-making.md`](superpowers/plans/2026-06-07-phase2-market-making.md),
 ADR [0013](decisions/0013-phase2-strategy-catalog.md)/[0014](decisions/0014-orderbook-data-and-informed-crossvenue-mm.md)/[0015](decisions/0015-execution-mode-stamped-by-broker.md).
@@ -51,7 +51,9 @@ ADR [0013](decisions/0013-phase2-strategy-catalog.md)/[0014](decisions/0014-orde
       [0014](decisions/0014-orderbook-data-and-informed-crossvenue-mm.md)); real validation is paper.
 - **Gate (Phase 2b, 2026-06-09): FAILED for v1** — net < 0 and Sharpe < 1.0 on real data → v1 trashed;
   iterate to **v2 (inventory skew)** per ADR 0018. (Thesis "MM on 0%-fee geo" not settled — the
-  artifact-corrected run was gate-invalid, n < 1000.)
+  artifact-corrected run was gate-invalid, n < 1000.) **v2 skew spike (ADR 0019) also failed** — skew
+  cut toxic inventory but net never reached ≥0 at either spread → **MM SHELVED; pivot to
+  wallet-analysis / directional.**
 
 ## Phase 3 — Paper trading
 - [ ] `PaperBroker` (our own "drawn" sim — Polymarket has no usable testnet) + Kalshi demo.
