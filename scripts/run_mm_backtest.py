@@ -24,7 +24,7 @@ from typing import Any
 import structlog
 
 from pat.analytics.metrics import Result, Verdict, summarize
-from pat.core.types import Category, Fill, Market, Venue
+from pat.core.types import Category, Fill, Market, Side, Venue
 from pat.costs.polymarket import MARKET_HALF_SPREAD
 from pat.data.polymarket_history import parse_orderfilled
 from pat.execution.backtest import BacktestBroker
@@ -34,6 +34,44 @@ from pat.strategies.market_maker import MarketMaker
 log = structlog.get_logger(__name__)
 
 Stream = list[tuple[Decimal, Decimal]]
+
+
+def _evaluate_config(
+    streams: dict[str, Stream],
+    market: Market,
+    *,
+    half_spread: Decimal,
+    gamma: Decimal,
+    skew_delta: Decimal,
+    size: Decimal,
+    inventory_cap: Decimal,
+    alpha: Decimal,
+    quote_band: Decimal,
+) -> dict[str, Any]:
+    """Run the MM over every token stream for one config; return result + verdict + residual."""
+    fill_dicts: list[dict[str, Any]] = []
+    marks: dict[str, Decimal] = {}
+    residual: dict[str, Decimal] = {}
+    for token_id, trades in streams.items():
+        broker = BacktestBroker(market=market)
+        mm = MarketMaker(token_id=token_id, half_spread=half_spread, size=size,
+                         inventory_cap=inventory_cap, alpha=alpha, tick=market.tick_size,
+                         quote_band=quote_band, gamma=gamma, skew_delta=skew_delta)
+        fills = run_replay(mm, broker, trades)
+        for f in fills:
+            side = mm.side_of(f.order_id)
+            if side is None:
+                continue
+            fill_dicts.append({"side": side.value, "price": f.price,
+                               "size": f.size, "fee": f.fee, "token_id": f.token_id})
+            signed = f.size if side is Side.BUY else -f.size
+            residual[token_id] = residual.get(token_id, Decimal("0")) + signed
+        if trades:
+            marks[token_id] = trades[-1][0]
+    result: Result = summarize(fill_dicts, marks=marks, inventory_haircut=MARKET_HALF_SPREAD)
+    verdict: Verdict = Verdict.from_metrics(result.sharpe, result.net_pnl, result.n_trades)
+    residual_abs_shares = sum((abs(v) for v in residual.values()), Decimal("0"))
+    return {"result": result, "verdict": verdict, "residual_abs_shares": residual_abs_shares}
 
 
 def run_sweep(
@@ -54,25 +92,36 @@ def run_sweep(
     """
     rows: list[dict[str, Any]] = []
     for hs in half_spreads:
-        fill_dicts: list[dict[str, Any]] = []
-        marks: dict[str, Decimal] = {}
-        for token_id, trades in streams.items():
-            broker = BacktestBroker(market=market)
-            mm = MarketMaker(token_id=token_id, half_spread=hs, size=size,
-                             inventory_cap=inventory_cap, alpha=alpha, tick=market.tick_size,
-                             quote_band=quote_band)
-            fills = run_replay(mm, broker, trades)
-            for f in fills:
-                side = mm.side_of(f.order_id)
-                if side is None:
-                    continue
-                fill_dicts.append({"side": side.value, "price": f.price,
-                                   "size": f.size, "fee": f.fee, "token_id": f.token_id})
-            if trades:
-                marks[token_id] = trades[-1][0]  # last trade price = mark
-        result: Result = summarize(fill_dicts, marks=marks, inventory_haircut=MARKET_HALF_SPREAD)
-        verdict: Verdict = Verdict.from_metrics(result.sharpe, result.net_pnl, result.n_trades)
-        rows.append({"half_spread": hs, "result": result, "verdict": verdict})
+        ev = _evaluate_config(streams, market, half_spread=hs, gamma=Decimal("0"),
+                              skew_delta=Decimal("0"), size=size, inventory_cap=inventory_cap,
+                              alpha=alpha, quote_band=quote_band)
+        rows.append({"half_spread": hs, "result": ev["result"], "verdict": ev["verdict"]})
+    return rows
+
+
+def run_skew_sweep(
+    streams: dict[str, Stream],
+    market: Market,
+    configs: list[dict[str, Decimal]],
+    *,
+    size: Decimal,
+    inventory_cap: Decimal,
+    alpha: Decimal,
+    quote_band: Decimal = Decimal("0.10"),
+) -> list[dict[str, Any]]:
+    """Evaluate each {half_spread, gamma, skew_delta} config.
+
+    Rows carry net_pnl_per_fill and residual_abs_shares.
+    """
+    rows: list[dict[str, Any]] = []
+    for cfg in configs:
+        ev = _evaluate_config(streams, market, half_spread=cfg["half_spread"], gamma=cfg["gamma"],
+                              skew_delta=cfg["skew_delta"], size=size, inventory_cap=inventory_cap,
+                              alpha=alpha, quote_band=quote_band)
+        n = ev["result"].n_trades
+        npf = (ev["result"].net_pnl / Decimal(n)) if n else Decimal("0")
+        rows.append({**cfg, "result": ev["result"], "verdict": ev["verdict"],
+                     "residual_abs_shares": ev["residual_abs_shares"], "net_pnl_per_fill": npf})
     return rows
 
 

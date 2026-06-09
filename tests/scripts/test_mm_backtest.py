@@ -114,3 +114,32 @@ def test_write_results_section_replaces_between_markers(tmp_path) -> None:
     assert text.startswith("# Strategy")
     assert text.rstrip().endswith("tail")
     assert "<!-- RESULTS:START -->" in text and "<!-- RESULTS:END -->" in text
+
+
+def test_run_skew_sweep_zero_coeffs_matches_run_sweep() -> None:
+    from scripts.run_mm_backtest import run_skew_sweep
+    streams = {"t": _oscillating_stream(40)}
+    hss = [Decimal("0.01"), Decimal("0.02")]
+    base = run_sweep(streams, market=_mkt(), half_spreads=hss,
+                     size=Decimal("10"), inventory_cap=Decimal("100"), alpha=Decimal("0.5"))
+    configs = [{"half_spread": hs, "gamma": Decimal("0"), "skew_delta": Decimal("0")} for hs in hss]
+    skew = run_skew_sweep(streams, market=_mkt(), configs=configs,
+                          size=Decimal("10"), inventory_cap=Decimal("100"), alpha=Decimal("0.5"))
+    for b, s in zip(base, skew, strict=True):
+        assert b["result"].net_pnl == s["result"].net_pnl
+        assert b["result"].n_trades == s["result"].n_trades
+
+
+def test_run_skew_sweep_respects_configs() -> None:
+    from scripts.run_mm_backtest import run_skew_sweep
+    # one-sided down-drift leaves the MM long; gamma>0 must change the outcome
+    streams = {"t": [(Decimal("0.50"), Decimal("10"))] + [(Decimal("0.40"), Decimal("10"))] * 20}
+    configs = [
+        {"half_spread": Decimal("0.02"), "gamma": Decimal("0"), "skew_delta": Decimal("0")},
+        {"half_spread": Decimal("0.02"), "gamma": Decimal("0.05"), "skew_delta": Decimal("0")},
+    ]
+    rows = run_skew_sweep(streams, market=_mkt(), configs=configs,
+                          size=Decimal("10"), inventory_cap=Decimal("100"), alpha=Decimal("0.5"))
+    assert rows[0]["result"].net_pnl != rows[1]["result"].net_pnl
+    assert "residual_abs_shares" in rows[1]
+    assert "net_pnl_per_fill" in rows[1]
