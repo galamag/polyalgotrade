@@ -72,3 +72,25 @@ def test_quote_prices_clamped_into_range() -> None:
         if isinstance(a, PostOrder) and a.order.side is Side.SELL
     ]
     assert asks and asks[0] == Decimal("0.99")  # clamped to 1 - tick
+
+
+def test_quote_band_stands_aside_near_resolution() -> None:
+    # fv within quote_band of a boundary → no quotes posted (near-resolved binary).
+    mm = _mm(quote_band=Decimal("0.10"))
+    high = mm.on_trade(Decimal("0.97"), Decimal("10"))   # first trade seeds fv=0.97 > 0.90
+    assert [a for a in high if isinstance(a, PostOrder)] == []
+    low = _mm(quote_band=Decimal("0.10")).on_trade(Decimal("0.03"), Decimal("10"))  # fv=0.03 < 0.10
+    assert [a for a in low if isinstance(a, PostOrder)] == []
+
+
+def test_quote_band_quotes_normally_at_mid_price() -> None:
+    mm = _mm(quote_band=Decimal("0.10"))
+    actions = mm.on_trade(Decimal("0.50"), Decimal("10"))  # mid → two-sided as usual
+    assert len([a for a in actions if isinstance(a, PostOrder)]) == 2
+
+
+def test_quote_band_default_zero_keeps_legacy_quoting_at_extremes() -> None:
+    # default quote_band=0 → guard disabled, still posts (and clamps) near the boundary
+    mm = _mm(half_spread=Decimal("0.05"))
+    actions = mm.on_trade(Decimal("0.99"), Decimal("10"))
+    assert len([a for a in actions if isinstance(a, PostOrder)]) == 2

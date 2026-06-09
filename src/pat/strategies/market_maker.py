@@ -25,6 +25,7 @@ class MarketMaker:
         inventory_cap: Decimal,
         alpha: Decimal = Decimal("0.3"),
         tick: Decimal = Decimal("0.01"),
+        quote_band: Decimal = Decimal("0"),
     ) -> None:
         self.token_id = token_id
         self.half_spread = Decimal(str(half_spread))
@@ -32,6 +33,9 @@ class MarketMaker:
         self.inventory_cap = Decimal(str(inventory_cap))
         self.alpha = Decimal(str(alpha))
         self.tick = Decimal(str(tick))
+        # Stand aside when fair value is within quote_band of 0/1 (near-resolved binary).
+        # 0 (default) = always quote (legacy behaviour).
+        self.quote_band = Decimal(str(quote_band))
 
         self.fv: Decimal | None = None
         self.inventory: Decimal = Decimal("0")
@@ -65,6 +69,14 @@ class MarketMaker:
         if self._ask_id is not None:
             actions.append(CancelOrder(self._ask_id))
             self._ask_id = None
+
+        # Boundary guard (ADR 0018): stand aside on near-resolved binaries. Within quote_band of
+        # 0/1 the symmetric quotes degenerate to the price clamp and the flow is dominated by
+        # resolution-direction informed trades. quote_band=0 disables this (legacy behaviour).
+        if self.quote_band > Decimal("0") and (
+            self.fv < self.quote_band or self.fv > Decimal("1") - self.quote_band
+        ):
+            return actions
 
         bid_px = self._clamp(self.fv - self.half_spread)
         ask_px = self._clamp(self.fv + self.half_spread)

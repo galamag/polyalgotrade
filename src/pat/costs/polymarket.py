@@ -77,3 +77,19 @@ def polymarket_maker_fee(category: Category, price: Decimal, shares: Decimal) ->
     and is accounted for separately in PnL attribution, not as a negative fee here.
     """
     return Decimal("0")
+
+
+# Assumed market half-spread (price units) to cross the book and flatten one residual share at
+# liquidation. 1 tick on Polymarket's penny grid. The backtest marks residual MM inventory net of
+# this cost. It is INDEPENDENT of the strategy's own quote half-spread — you unwind at the MARKET's
+# spread, not at the width you happened to quote (fee-audit fix, ADR 0018).
+MARKET_HALF_SPREAD = Decimal("0.01")
+
+
+def liquidation_haircut(net_shares: Decimal) -> Decimal:
+    """Cost (USDC) to cross the book and flatten a residual position.
+
+    ``|net_shares| * MARKET_HALF_SPREAD``. Routed through the cost model (not ad-hoc in the
+    backtest runner) so the residual-inventory liquidation cost is auditable and tested.
+    """
+    return abs(net_shares) * MARKET_HALF_SPREAD

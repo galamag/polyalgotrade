@@ -25,6 +25,7 @@ import structlog
 
 from pat.analytics.metrics import Result, Verdict, summarize
 from pat.core.types import Category, Fill, Market, Venue
+from pat.costs.polymarket import MARKET_HALF_SPREAD
 from pat.data.polymarket_history import parse_orderfilled
 from pat.execution.backtest import BacktestBroker
 from pat.execution.replay import run_replay
@@ -42,11 +43,14 @@ def run_sweep(
     size: Decimal,
     inventory_cap: Decimal,
     alpha: Decimal,
+    quote_band: Decimal = Decimal("0.10"),
 ) -> list[dict[str, Any]]:
     """Run the MM over every token stream for each half_spread; return frontier rows.
 
     Each row: {"half_spread", "result": Result, "verdict": Verdict}.
-    Residual inventory is marked at last trade price minus a half_spread haircut.
+    The MM stands aside within quote_band of 0/1 (near-resolved binaries; ADR 0018). Residual
+    inventory is marked at the last trade price minus the market liquidation haircut
+    (pat.costs.polymarket.MARKET_HALF_SPREAD), independent of the quote half_spread.
     """
     rows: list[dict[str, Any]] = []
     for hs in half_spreads:
@@ -55,7 +59,8 @@ def run_sweep(
         for token_id, trades in streams.items():
             broker = BacktestBroker(market=market)
             mm = MarketMaker(token_id=token_id, half_spread=hs, size=size,
-                             inventory_cap=inventory_cap, alpha=alpha, tick=market.tick_size)
+                             inventory_cap=inventory_cap, alpha=alpha, tick=market.tick_size,
+                             quote_band=quote_band)
             fills = run_replay(mm, broker, trades)
             for f in fills:
                 side = mm.side_of(f.order_id)
@@ -65,7 +70,7 @@ def run_sweep(
                                    "size": f.size, "fee": f.fee, "token_id": f.token_id})
             if trades:
                 marks[token_id] = trades[-1][0]  # last trade price = mark
-        result: Result = summarize(fill_dicts, marks=marks, inventory_haircut=hs)
+        result: Result = summarize(fill_dicts, marks=marks, inventory_haircut=MARKET_HALF_SPREAD)
         verdict: Verdict = Verdict.from_metrics(result.sharpe, result.net_pnl, result.n_trades)
         rows.append({"half_spread": hs, "result": result, "verdict": verdict})
     return rows
@@ -167,6 +172,9 @@ if __name__ == "__main__":
         "--inventory-cap", default="100", help="Max absolute inventory per token (default: 100)."
     )
     parser.add_argument("--alpha", default="0.3", help="EWMA alpha for fair value (default: 0.3).")
+    parser.add_argument("--quote-band", default="0.10",
+                        help="Stand aside within this distance of 0/1 (near-resolved binaries; "
+                             "default 0.10). Set 0 to disable the boundary guard.")
     parser.add_argument("--record", type=Path, default=None,
                         help="If set, write the frontier into the RESULTS markers of this doc "
                              "(e.g. docs/strategies/market-making.md).")
@@ -225,6 +233,7 @@ if __name__ == "__main__":
         size=Decimal(args.size),
         inventory_cap=Decimal(args.inventory_cap),
         alpha=Decimal(args.alpha),
+        quote_band=Decimal(args.quote_band),
     )
     print_frontier(rows)
 

@@ -3,7 +3,13 @@ from decimal import Decimal
 import pytest
 
 from pat.core.types import Category
-from pat.costs.polymarket import MAKER_REBATE_RATE, polymarket_maker_fee, polymarket_taker_fee
+from pat.costs.polymarket import (
+    MAKER_REBATE_RATE,
+    MARKET_HALF_SPREAD,
+    liquidation_haircut,
+    polymarket_maker_fee,
+    polymarket_taker_fee,
+)
 
 
 def test_crypto_peak_is_1_75pct_at_half():
@@ -60,3 +66,10 @@ def test_geopolitics_rebate_rate_is_zero():
     assert MAKER_REBATE_RATE[Category.GEOPOLITICS] == Decimal("0")
     assert MAKER_REBATE_RATE[Category.POLITICS] == Decimal("0.25")
     assert MAKER_REBATE_RATE[Category.CRYPTO] == Decimal("0.20")
+
+
+def test_liquidation_haircut_scales_with_abs_shares_and_market_half_spread():
+    assert MARKET_HALF_SPREAD > Decimal("0")
+    assert liquidation_haircut(Decimal("100")) == Decimal("100") * MARKET_HALF_SPREAD
+    assert liquidation_haircut(Decimal("-50")) == Decimal("50") * MARKET_HALF_SPREAD  # abs(short)
+    assert liquidation_haircut(Decimal("0")) == Decimal("0")
