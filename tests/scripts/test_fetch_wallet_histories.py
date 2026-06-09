@@ -41,3 +41,17 @@ def test_fetch_one_wallet_runs_maker_and_taker_passes(monkeypatch) -> None:
     # one exchange * (maker pass + taker pass) = 2 calls
     assert len(calls) == 2
     assert len(out) >= 1
+
+
+def test_v1_fraction_for_wallet_median_based() -> None:
+    # Verify v1_fraction_for_wallet computes per-wallet fraction correctly.
+    # V2 topic0 lowercased
+    v2_t = fwh.V2_TOPIC0.lower()
+    # All V2 -> fraction 0.0
+    hist_all_v2 = {v2_t: 10}
+    assert fwh.v1_fraction_for_wallet(hist_all_v2) == 0.0
+    # Half V1-or-other -> fraction 0.5
+    hist_half = {v2_t: 5, "0xother": 5}
+    assert fwh.v1_fraction_for_wallet(hist_half) == 0.5
+    # Empty -> None (no logs)
+    assert fwh.v1_fraction_for_wallet({}) is None

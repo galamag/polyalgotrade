@@ -2,8 +2,10 @@
 
 USER-RUNS THIS (Alchemy key in POLYGON_RPC_URL). Per wallet, two topic-filtered passes
 (maker=topics[2], taker=topics[3]) per exchange, merged. Saves data/raw/wallets/<addr>.json.
-Also reports a topic0 histogram per wallet -> the measure-first V1 gate (spec §6): if V1
-OrderFilled > 20% of fills for the median wallet, we build a V1 decoder before features.
+Also reports a topic0 histogram per wallet -> the measure-first V1 gate (spec §6, S4): if V1
+OrderFilled > 20% of fills for the MEDIAN wallet, we build a V1 decoder before features.
+The numerator is a conservative over-count (non-OrderFilled V1 events included) until the
+true V1 OrderFilled topic0 is identified from the dumped histograms.
 
 🔴 Never read .env — the key lives in POLYGON_RPC_URL or is passed via --rpc-url.
 """
@@ -13,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import statistics
 import sys
 import uuid
 from collections import Counter
@@ -52,6 +55,14 @@ def topic0_histogram(logs: list[dict[str, Any]]) -> dict[str, int]:
         if topics:
             c[str(topics[0]).lower()] += 1
     return dict(c)
+
+
+def v1_fraction_for_wallet(hist: dict[str, int]) -> float | None:
+    """Per-wallet V1-or-other fraction. Returns None if no logs (skip in median)."""
+    v2 = hist.get(V2_TOPIC0.lower(), 0)
+    v1 = sum(v for k, v in hist.items() if k != V2_TOPIC0.lower())
+    total = v1 + v2
+    return (v1 / total) if total > 0 else None
 
 
 def fetch_one_wallet(
@@ -99,8 +110,10 @@ def run(
     (out_dir / "_control.json").write_text(json.dumps(control), encoding="utf-8")
     blog.info("wallets.selected", winners=len(winners), control=len(control))
 
-    v1_total = 0
-    of_total = 0
+    # Collect per-wallet topic0 histograms and V1 fractions (S4)
+    v1_fractions: list[float] = []
+    all_histograms: dict[str, dict[str, int]] = {}
+
     for wallet in (*winners, *control):
         wallet_logs = fetch_one_wallet(
             wallet,
@@ -110,20 +123,32 @@ def run(
             exchanges_topic0=EXCHANGES,
         )
         hist = topic0_histogram(wallet_logs)
+        all_histograms[wallet] = hist
+
+        # Per-wallet V1 fraction for median computation (S4)
+        frac = v1_fraction_for_wallet(hist)
+        if frac is not None:
+            v1_fractions.append(frac)
+
         v2 = hist.get(V2_TOPIC0.lower(), 0)
         v1 = sum(v for k, v in hist.items() if k != V2_TOPIC0.lower())
-        v1_total += v1
-        of_total += v1 + v2
         (out_dir / f"{wallet}.json").write_text(
             json.dumps(wallet_logs, indent=2), encoding="utf-8"
         )
         blog.info("wallet.fetched", wallet=wallet, n=len(wallet_logs), v2=v2, v1_or_other=v1)
 
-    v1_share = (v1_total / of_total) if of_total else 0.0
+    # Write per-wallet topic0 histograms so V1 topic0 can be identified from observations (S4)
+    (out_dir / "_topic0_histograms.json").write_text(
+        json.dumps(all_histograms, indent=2), encoding="utf-8"
+    )
+
+    # Median over wallets (not pooled) — conservative over-count until V1 topic0 confirmed (S4)
+    v1_share = statistics.median(v1_fractions) if v1_fractions else 0.0
     blog.info(
         "v1_gate",
         v1_share=round(v1_share, 3),
         decision="BUILD_V1_DECODER" if v1_share > 0.20 else "V2_ONLY_OK",
+        note="numerator is conservative over-count (non-OrderFilled V1 events included)",
     )
     return out_dir
 
