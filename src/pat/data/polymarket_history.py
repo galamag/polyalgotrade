@@ -33,7 +33,7 @@ log = structlog.get_logger(__name__)
 FILL_SCALE = Decimal("1000000")  # 6-dp fixed-point on-chain amounts
 
 
-def _price_and_size(ev: dict[str, object]) -> tuple[Decimal, Decimal]:
+def price_and_size(ev: dict[str, object]) -> tuple[Decimal, Decimal]:
     """Return (price, shares) from a raw OrderFilled event dict.
 
     The collateral (USDC) leg is authoritatively the one with assetId == "0".
@@ -84,7 +84,7 @@ def parse_orderfilled(events: list[dict[str, object]]) -> list[Fill]:
     """
     out: list[Fill] = []
     for i, ev in enumerate(events):
-        price, size = _price_and_size(ev)
+        price, size = price_and_size(ev)
         fee_raw = Decimal(str(ev.get("fee", "0"))) / FILL_SCALE
 
         # token_id: prefer the non-zero asset ID (shares leg); USDC leg is "0"
