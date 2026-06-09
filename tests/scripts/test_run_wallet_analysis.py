@@ -88,3 +88,44 @@ def test_recommend_indistinguishable_when_inside_control_iqr() -> None:
                for i in range(5)]
     rec = rwa._recommend(winners, control)
     assert "indistinguishable" in rec or "structural" in rec
+
+
+def test_analyze_wallet_uses_tagged_trades() -> None:
+    """analyze_wallet must accept tagged /trades dicts (with is_maker) and return a row dict."""
+    tagged_trades = [
+        {
+            "asset": "7",
+            "side": "BUY",
+            "price": 0.4,
+            "size": 10,
+            "timestamp": 100,
+            "conditionId": "0xc",
+            "transactionHash": "0x1",
+            "is_maker": True,
+        },
+        {
+            "asset": "7",
+            "side": "SELL",
+            "price": 0.6,
+            "size": 10,
+            "timestamp": 200,
+            "conditionId": "0xc",
+            "transactionHash": "0x2",
+            "is_maker": False,
+        },
+        {
+            "asset": "8",
+            "side": "BUY",
+            "price": 0.3,
+            "size": 5,
+            "timestamp": 300,
+            "conditionId": "0xc",
+            "transactionHash": "0x3",
+            "is_maker": True,
+        },
+    ]
+    row = rwa.analyze_wallet("0xwallet", tagged_trades, marks={})
+    assert "archetype" in row
+    assert "features" in row
+    assert isinstance(row["features"], WalletFeatures)
+    assert row["features"].n_fills == 3

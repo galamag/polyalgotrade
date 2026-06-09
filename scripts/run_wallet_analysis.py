@@ -1,8 +1,7 @@
-"""Analyze saved per-wallet OrderFilled history -> archetype map + recommendation (spec §H).
+"""Analyze saved per-wallet tagged /trades -> archetype map + recommendation (spec §H).
 
-AI may run this (keyless): decode V2 logs, pull data-api marks (seam), compute features,
-classify, contrast vs control, render the report. Per the measure-first gate, if the fetch
-flagged V1 as material, decode_v1_orderfilled (Task 10) must exist and be wired in first.
+Keyless: reads tagged trade JSON files produced by fetch_wallet_trades.py, pulls
+data-api marks (seam), computes features, classifies, contrasts vs control, renders report.
 """
 
 from __future__ import annotations
@@ -17,8 +16,9 @@ from pathlib import Path
 from typing import Any
 
 _ROOT = Path(__file__).resolve().parents[1]
-if str(_ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "src"))
+for _p in (_ROOT, _ROOT / "src"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 import httpx  # noqa: E402
 import structlog  # noqa: E402
@@ -28,10 +28,9 @@ from pat.analytics.wallet_features import (  # noqa: E402
     WalletFeatures,
     compute_wallet_features,
     copyability_proxy,
-    derive_wallet_fills,
     is_skill_cohort,
+    wallet_fills_from_trades,
 )
-from pat.data.polymarket_on_chain import decode_v2_orderfilled  # noqa: E402
 
 DATA_API = "https://data-api.polymarket.com"
 _REQUEST_TIMEOUT = 30  # seconds
@@ -61,11 +60,10 @@ def _data_api_marks(wallet: str) -> dict[str, Decimal]:
 
 
 def analyze_wallet(
-    wallet: str, raw_logs: list[dict[str, Any]], marks: dict[str, Decimal]
+    wallet: str, trades: list[dict[str, Any]], marks: dict[str, Decimal]
 ) -> dict[str, Any]:
-    """Decode -> derive fills -> features -> classify -> screen. Pure given marks."""
-    decoded = [d for d in (decode_v2_orderfilled(x) for x in raw_logs) if d is not None]
-    fills = derive_wallet_fills(decoded, wallet)
+    """Convert tagged /trades -> fills -> features -> classify -> screen. Pure given marks."""
+    fills = wallet_fills_from_trades(trades)
     features = compute_wallet_features(wallet, fills, marks)
     archetype, _conf = classify(features)
     return {
@@ -221,18 +219,18 @@ def render_report(
     return "\n".join(lines)
 
 
-def run(wallets_dir: Path, winners: list[str], control: list[str], out_path: Path,
+def run(trades_dir: Path, winners: list[str], control: list[str], out_path: Path,
         *, v1_share: float, get_marks: Any = None) -> Path:
     marks_fn = get_marks or _data_api_marks
 
     def _rows(addrs: list[str]) -> list[dict[str, Any]]:
         rows = []
         for w in addrs:
-            f = wallets_dir / f"{w}.json"
+            f = trades_dir / f"{w}.json"
             if not f.exists():
                 continue
-            raw = json.loads(f.read_text(encoding="utf-8"))
-            rows.append(analyze_wallet(w, raw, marks_fn(w)))
+            trades = json.loads(f.read_text(encoding="utf-8"))
+            rows.append(analyze_wallet(w, trades, marks_fn(w)))
         return rows
 
     win_rows, ctrl_rows = _rows(winners), _rows(control)
@@ -253,8 +251,10 @@ def run(wallets_dir: Path, winners: list[str], control: list[str], out_path: Pat
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Analyze saved wallet histories -> archetype report.")
-    p.add_argument("--wallets-dir", type=Path, default=Path("data/raw/wallets"))
+    p = argparse.ArgumentParser(
+        description="Analyze saved wallet trade histories -> archetype report."
+    )
+    p.add_argument("--trades-dir", type=Path, default=Path("data/raw/wallet_trades"))
     p.add_argument("--winners", type=Path, required=True, help="JSON list of winner addresses")
     p.add_argument("--control", type=Path, required=True, help="JSON list of control addresses")
     p.add_argument("--v1-share", type=float, default=0.0)
@@ -271,6 +271,6 @@ if __name__ == "__main__":
         wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
     )
     a = _parse_args()
-    out = run(a.wallets_dir, json.loads(a.winners.read_text()),
+    out = run(a.trades_dir, json.loads(a.winners.read_text()),
               json.loads(a.control.read_text()), a.out, v1_share=a.v1_share)
     print(out)  # noqa: T201
