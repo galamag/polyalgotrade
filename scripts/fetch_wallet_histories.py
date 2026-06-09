@@ -22,10 +22,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-# --- sys.path bootstrap so `python scripts/...` finds the src/ package ---------
+# Allow direct execution (`python scripts/...`): running a file by path puts the script's own dir
+# on sys.path[0], not the project root, so the sibling `scripts.*` import below would fail. Put the
+# project ROOT (for `scripts.*`) and `src/` (for `pat.*`) on sys.path. pytest already has these.
 _ROOT = Path(__file__).resolve().parents[1]
-if str(_ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "src"))
+for _p in (_ROOT, _ROOT / "src"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 import structlog  # noqa: E402
 
