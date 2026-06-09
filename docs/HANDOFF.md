@@ -4,7 +4,7 @@
 > git-versioned session handoff (unlike `.remember/remember.md`, which the remember plugin empties
 > on start and is not in git). **Update + commit this file at each session end.**
 
-**Last updated:** 2026-06-09 · **Branch:** `main` (Phase-2b verdict committed; check `git log`/`git status` for sync).
+**Last updated:** 2026-06-09 · **Branch:** `main` (wallet-analysis verdict ADR 0020 committed; check `git log`/`git status` for sync).
 
 ## Where we are
 - **Phase 0 ✅** claims · **Phase 1 ✅** data + cost model + backtest core · **Phase 2 ✅** MM backtest pipeline.
@@ -29,29 +29,40 @@
 - **Claims:** **I10** NegRisk == main `OrderFilled` ABI **VERIFIED**. **I9 downgraded → PARTIAL**:
   `feesEnabled=false` ≠ 0% on-chain (885/21,748 fills carried a fee; flag lied). I8 VERIFIED.
 - **Security:** supply-chain hardening (ADR 0017) done earlier; registry MFA/tokens [F] deferred by user.
+- **Wallet-analysis spike (lean) ✅ done — INCONCLUSIVE** (ADR 0020), the pivot target off MM. Built a
+  **keyless** acquisition (`data-api/trades`, claim I13 — after on-chain getLogs **exploded** on
+  hyper-active wallets: 1M CU, 0 wallets done → pivot). Classified top-50-by-PnL + 25 control →
+  40/50 "directional-holder" (maker-led, buy-and-hold). BUT this **FAILS §2/B1 + §9/S1 gates**, is
+  **survivorship-tautological** (all-time-PnL frame selects directional bets that *won*) and
+  **artifact-laden** (recent-2000 window; redemptions absent from /trades → 33/50 `pnl_proxy<0`, proxy
+  falsified by its own frame). `quant-researcher`: GO-WITH-CHANGES → verdict is **INCONCLUSIVE →
+  Approach 2** (NOT "build D3"). 194 tests green; keyless pipeline + 75-wallet dataset reusable.
 
 ## Read next (grounding, in order)
 1. `CLAUDE.md` — operating manual (auto-loads). 2. `docs/roadmap.md` — phase gates.
-3. **`docs/decisions/0018-geopolitics-mm-verdict.md`** — THE verdict + artifacts + fixes + follow-ups.
-4. `docs/strategies/market-making.md` — §7 recorded frontier + **§8 verdict** + v2 next-steps.
-5. `docs/research/claims-verification.md` — **I9 (PARTIAL, on-chain fee ≠ flag)**, I10, I8.
+3. **`docs/decisions/0020-wallet-analysis-verdict.md`** — LATEST verdict (lean wallet read INCONCLUSIVE
+   → Approach 2). Then `0019` (MM skew pivot) + `0018` (MM v1). Report: `docs/research/2026-06-09-wallet-analysis.md`.
+4. `docs/strategies/market-making.md` — §7 recorded frontier + **§8 verdict** (MM shelved).
+5. `docs/research/claims-verification.md` — **I13 (/trades), I11/I12 (leaderboard+proxy)**, I9, I10, I8.
 6. Tooling touched: `scripts/fetch_geopolitics_data.py` (`--fast-ts`, closed=false+paginate),
    `scripts/fetch_polymarket_history.py` (auto-split + 429 retry + redaction),
    `scripts/run_mm_backtest.py` (`--quote-band`), `src/pat/strategies/market_maker.py` (`quote_band`),
    `src/pat/costs/polymarket.py` (`MARKET_HALF_SPREAD` / `liquidation_haircut`).
 
-## Next action — **pivot off MM → top-50 wallet behavioral analysis** (ADR 0019)
-MM is shelved (v1 trashed, v2 skew spike = pivot). Per ADR 0018/0019, let the *winners'* on-chain
-behavior pick the next strategy before committing to a build:
-1. **Brainstorm the wallet-analysis spike** (superpowers:brainstorming): rank top wallets by P&L
-   (Polymarket data-api/leaderboard — verify the endpoint via `claims-verifier` first), then pull each
-   wallet's full V2 `OrderFilled` history via **topic-filtered** `eth_getLogs` (maker = `topics[2]`,
-   taker = `topics[3]` are indexed → sparse → huge block ranges → ~110k CU for 50 wallets).
-2. Classify each into an archetype (market-maker / directional-informed / longshot-farmer /
-   resolution-holder / arbitrageur) from behavioral features (maker/taker ratio, hold-vs-flip, entry
-   timing vs price moves, category, price levels). 🔴 survivorship bias — winners may be un-copyable.
-3. The result steers the next *real* strategy (likely directional/news or copy-trading, ADR-0013
-   catalog). Reuse the existing decoder/fetcher (`--fast-ts`, auto-split, 429-retry).
+## Next action — **Approach 2: resolution-grounded P&L** (ADR 0020); C1 & D3 both open
+The lean (trade-only) wallet read can't judge the winners — their edge is the **resolution payout**,
+invisible to `/trades` (redemptions aren't trades), and the all-time-PnL frame is survivorship-biased.
+Before picking C1 (copy-trading) vs D3 (directional/news):
+1. **Approach 2 — resolution-grounded P&L:** join each saved trade's `conditionId` → Gamma resolution
+   (winning outcome) → compute TRUE realized P&L incl. redemption payouts; re-screen skill vs luck.
+   Reuses the saved 75-wallet dataset (`data/raw/wallet_trades/`) + the analytics pipeline.
+2. **Non-survivorship sample:** rank candidates **at entry** (wallets active in a past market set),
+   not by all-time outcome, so directional *losers* are visible.
+3. **Then** decide C1 vs D3; if C1 → **Approach 3** (replay with our lag + taker fee + slippage).
+Reuse (keyless): `pat.venues.polymarket.trades` (`fetch_user_trades`, `tag_maker_taker`),
+`pat.venues.polymarket.leaderboard`, `pat.analytics.wallet_features`/`wallet_archetype`/`wallet_control`,
+`scripts/fetch_wallet_trades.py` + `scripts/run_wallet_analysis.py`. (On-chain `fetch_wallet_histories.py`
+stays as the deferred narrow spot-check; never use it for full active-wallet history — getLogs explodes.)
 
 **Open backlog (recorded, not lost):**
 - Golden raw-log fixture (plan Task 7 Step 4b) — still pending; needs one tiny raw fetch

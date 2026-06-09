@@ -102,11 +102,16 @@ def _recommend(winners: list[dict[str, Any]], control: list[dict[str, Any]]) -> 
         )
         if dom in hold_types and dom_n >= len(winners) * 0.4 and med_realized < 0.2:
             return (
-                f"Winners are dominantly '{dom}' (buy-and-hold to resolution; median "
-                f"realized_share {med_realized:.2f}). Their edge is the RESOLUTION PAYOUT, "
-                "invisible to trade-only P&L (redemptions are not trades) -> next strategy = "
-                "directional / news (D3, 'become the informed flow'); to quantify edge & "
-                "copyability, escalate to Approach 2 (resolution-grounded P&L), NOT more wallets."
+                f"LEAN READ INCONCLUSIVE. Dominant label '{dom}' ({dom_n}/{len(winners)}) "
+                "FAILS the gates: §2/B1 control gate (directional discriminator "
+                "roundtrip_return_median=0 for all holders) and §9/S1 skill cohort "
+                f"(0 qualify; median realized_share {med_realized:.2f}). The label is "
+                "artifact-laden (recent-trade-window + redemptions absent from /trades) and "
+                "SURVIVORSHIP-tautological (all-time-PnL frame selects directional bets that "
+                "WON). -> Do NOT pick a strategy. Escalate to Approach 2 (resolution-grounded "
+                "P&L) + a non-survivorship sample (rank at entry, not outcome). C1 (copy-"
+                "trading; hold-to-resolution is highly copyable) and D3 (directional/news) "
+                "BOTH remain open, pending Approach 2/3."
             )
 
     skilled = [r for r in winners if r["skill"]]
