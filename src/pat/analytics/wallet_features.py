@@ -102,6 +102,7 @@ class WalletFeatures(BaseModel):
     top1_token_pnl_share: float
     positive_token_fraction: float
     roundtrip_return_median: Decimal
+    buy_fill_fraction: float = 0.0
 
 
 def _vwap(prices_sizes: list[tuple[Decimal, Decimal]]) -> Decimal:
@@ -215,6 +216,7 @@ def compute_wallet_features(
         top1_token_pnl_share=top1_share,
         positive_token_fraction=len(positive) / n_tokens,
         roundtrip_return_median=median(roundtrips) if roundtrips else Decimal("0"),
+        buy_fill_fraction=sum(1 for f in fills if f.side is Side.BUY) / len(fills),
     )
 
 

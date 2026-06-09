@@ -15,6 +15,7 @@ from pat.analytics.wallet_features import WalletFeatures
 ARBITRAGEUR = "arbitrageur"
 MARKET_MAKER = "market-maker"
 DIRECTIONAL_INFORMED = "directional-informed"
+DIRECTIONAL_HOLDER = "directional-holder"
 LONGSHOT_FARMER = "longshot-farmer"
 RESOLUTION_HOLDER = "resolution-holder"
 UNCLASSIFIED = "unclassified"
@@ -33,6 +34,14 @@ def classify(f: WalletFeatures) -> tuple[str, float]:
         return LONGSHOT_FARMER, 0.7
     if f.entry_price_mean >= Decimal("0.85") and f.flip_rate <= 0.3:
         return RESOLUTION_HOLDER, 0.7
+    # Directional conviction holder: BUY-dominant, rarely sells (holds to resolution), mid-range
+    # entry (not a longshot tail, not a near-certain carry). The empirically dominant winner type.
+    if (
+        f.flip_rate <= 0.3
+        and f.buy_fill_fraction >= 0.7
+        and Decimal("0.2") < f.entry_price_mean < Decimal("0.85")
+    ):
+        return DIRECTIONAL_HOLDER, 0.7
     # Market-maker: maker-led, fast two-sided flip in the mid band.
     if (
         f.maker_fill_ratio >= 0.6

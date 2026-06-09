@@ -209,3 +209,14 @@ def test_wallet_fills_from_trades_skips_zero_size() -> None:
     fills = wallet_fills_from_trades([zero, good])
     assert len(fills) == 1
     assert fills[0].token_id == "444"
+
+
+def test_compute_wallet_features_buy_fill_fraction() -> None:
+    """2 BUY fills + 1 SELL fill -> buy_fill_fraction == 2/3 (~0.667)."""
+    fills = [
+        _wf("A", Side.BUY, "0.40", "10", 1),
+        _wf("A", Side.BUY, "0.45", "5", 2),
+        _wf("A", Side.SELL, "0.60", "8", 50),
+    ]
+    f = compute_wallet_features("0xw", fills, marks={})
+    assert abs(f.buy_fill_fraction - 2 / 3) < 1e-9

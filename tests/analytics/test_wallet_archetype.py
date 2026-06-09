@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from pat.analytics.wallet_archetype import (
     ARBITRAGEUR,
+    DIRECTIONAL_HOLDER,
     DIRECTIONAL_INFORMED,
     LONGSHOT_FARMER,
     MARKET_MAKER,
@@ -57,3 +58,15 @@ def test_classify_unclassified_when_nothing_fits() -> None:
     f = _f(maker_fill_ratio=0.5, flip_rate=0.3, median_hold_blocks=200,
            entry_price_mean=Decimal("0.5"), top1_token_pnl_share=0.2)
     assert classify(f)[0] == UNCLASSIFIED
+
+
+def test_classify_directional_holder() -> None:
+    # BUY-dominant (buy_fill_fraction=0.9), rarely sells (flip_rate=0.0), mid-range entry.
+    f = _f(flip_rate=0.0, buy_fill_fraction=0.9, entry_price_mean=Decimal("0.5"))
+    assert classify(f)[0] == DIRECTIONAL_HOLDER
+
+
+def test_classify_resolution_holder_not_stolen_by_directional_holder() -> None:
+    # entry_price_mean=0.95 fails the <0.85 upper bound -> resolution-holder wins first.
+    f = _f(flip_rate=0.1, buy_fill_fraction=0.9, entry_price_mean=Decimal("0.95"))
+    assert classify(f)[0] == RESOLUTION_HOLDER

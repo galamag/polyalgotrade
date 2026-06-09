@@ -90,6 +90,22 @@ def test_recommend_indistinguishable_when_inside_control_iqr() -> None:
     assert "indistinguishable" in rec or "structural" in rec
 
 
+def test_recommend_directional_holder_to_approach2() -> None:
+    """Dominant directional-holder + low realized_share -> recommend Approach 2, not more wallets.
+
+    Hold-to-resolution archetype: escalate to resolution-grounded P&L analysis, not more wallets.
+    """
+    # 5 winner rows: archetype=directional-holder, realized_share=0.0 (unrealized P&L only).
+    winners = [
+        _row(f"0xw{i}", "directional-holder", skill=False, realized_share=0.0)
+        for i in range(5)
+    ]
+    control = [_row(f"0xc{i}", "unclassified", skill=False) for i in range(3)]
+    rec = rwa._recommend(winners, control)
+    assert "Approach 2" in rec
+    assert "directional" in rec
+
+
 def test_analyze_wallet_uses_tagged_trades() -> None:
     """analyze_wallet must accept tagged /trades dicts (with is_maker) and return a row dict."""
     tagged_trades = [

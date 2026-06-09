@@ -23,7 +23,12 @@ for _p in (_ROOT, _ROOT / "src"):
 import httpx  # noqa: E402
 import structlog  # noqa: E402
 
-from pat.analytics.wallet_archetype import classify  # noqa: E402
+from pat.analytics.wallet_archetype import (  # noqa: E402
+    DIRECTIONAL_HOLDER,
+    LONGSHOT_FARMER,
+    RESOLUTION_HOLDER,
+    classify,
+)
 from pat.analytics.wallet_features import (  # noqa: E402
     WalletFeatures,
     compute_wallet_features,
@@ -88,6 +93,22 @@ def _recommend(winners: list[dict[str, Any]], control: list[dict[str, Any]]) -> 
     Enforces the control gate: if the discriminating feature median falls inside the
     control IQR, the archetype is indistinguishable from ordinary trading + luck.
     """
+    hold_types = {DIRECTIONAL_HOLDER, LONGSHOT_FARMER, RESOLUTION_HOLDER}
+    if winners:
+        all_counts = Counter(r["archetype"] for r in winners)
+        dom, dom_n = all_counts.most_common(1)[0]
+        med_realized = statistics.median(
+            [_feat_float(r["features"], "realized_share") for r in winners]
+        )
+        if dom in hold_types and dom_n >= len(winners) * 0.4 and med_realized < 0.2:
+            return (
+                f"Winners are dominantly '{dom}' (buy-and-hold to resolution; median "
+                f"realized_share {med_realized:.2f}). Their edge is the RESOLUTION PAYOUT, "
+                "invisible to trade-only P&L (redemptions are not trades) -> next strategy = "
+                "directional / news (D3, 'become the informed flow'); to quantify edge & "
+                "copyability, escalate to Approach 2 (resolution-grounded P&L), NOT more wallets."
+            )
+
     skilled = [r for r in winners if r["skill"]]
 
     # S1 — minimum cohort size
