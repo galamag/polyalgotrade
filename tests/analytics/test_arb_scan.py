@@ -301,3 +301,35 @@ def test_windows_distinct_types_are_distinct_windows() -> None:
     snaps = [_snap(0, [("ev-a", "buy_all"), ("ev-a", "sell_all")])]
     ws = windows_from_snapshots(snaps, interval_s=120)
     assert len(ws) == 2
+
+
+def test_windows_multiple_keys_one_closes() -> None:
+    snaps = [
+        _snap(0, [("ev-a", "buy_all"), ("ev-b", "buy_all")]),
+        _snap(120, [("ev-a", "buy_all")]),  # ev-b disappears, ev-a persists
+        _snap(240, [("ev-a", "buy_all")]),
+    ]
+    ws = windows_from_snapshots(snaps, interval_s=120)
+    by_key = {w["key"]: w for w in ws}
+    assert len(ws) == 2
+    assert by_key["ev-b"]["n_scans"] == 1
+    assert by_key["ev-a"]["n_scans"] == 3
+
+
+def test_windows_max_best_net_keeps_peak_not_last() -> None:
+    snaps = [
+        _snap(0, [("ev-a", "buy_all")], net="5"),
+        _snap(120, [("ev-a", "buy_all")], net="2"),  # lower — peak must stay 5
+    ]
+    ws = windows_from_snapshots(snaps, interval_s=120)
+    assert len(ws) == 1
+    assert ws[0]["max_best_net"] == Decimal("5")
+
+
+def test_windows_open_at_end_is_included() -> None:
+    snaps = [_snap(0, [("ev-a", "buy_all")])]  # never closed by an empty scan
+    ws = windows_from_snapshots(snaps, interval_s=120)
+    assert len(ws) == 1
+    assert ws[0]["key"] == "ev-a"
+    assert ws[0]["start_ts"] == 0
+    assert ws[0]["end_ts"] == 0

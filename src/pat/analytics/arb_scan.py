@@ -291,6 +291,8 @@ def build_universe(events: list[dict[str, object]], *, max_books: int) -> Univer
         budget -= need
     binaries_out: list[BinaryTarget] = []
     for _, b in bins:
+        # break (not continue): binaries are sorted by volume desc and each needs exactly
+        # 2 tokens, so once budget < 2 no later binary can fit either.
         if budget < 2:
             truncated = True
             break
@@ -351,4 +353,7 @@ def windows_from_snapshots(
                 out.append(active.pop(k))
         prev_ts = ts
     out.extend(active.values())
-    return sorted(out, key=lambda w: float(str(w["start_ts"])))
+    return sorted(
+        out,
+        key=lambda w: (float(str(w["start_ts"])), str(w["key"]), str(w["type"])),
+    )
