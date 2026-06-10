@@ -93,3 +93,34 @@ def liquidation_haircut(net_shares: Decimal) -> Decimal:
     backtest runner) so the residual-inventory liquidation cost is auditable and tested.
     """
     return abs(net_shares) * MARKET_HALF_SPREAD
+
+
+# Conservative per-transaction gas on Polygon (claim I7: $0.002-0.005). CLOB trades cost
+# the USER no gas (the operator settles); gas applies to split/merge/redeem transactions.
+POLYGON_TX_GAS_USDC = Decimal("0.005")
+
+
+def gas_cost(n_txs: int) -> Decimal:
+    """Gas line item (USDC) for *n_txs* on-chain transactions (split/merge/redeem)."""
+    if n_txs < 0:
+        raise ValueError(f"n_txs must be >= 0, got {n_txs}")
+    return POLYGON_TX_GAS_USDC * n_txs
+
+
+def depth_vwap(
+    levels: list[tuple[Decimal, Decimal]], size: Decimal
+) -> Decimal | None:
+    """Executable VWAP walking (price, size) levels best-first; None if depth < size.
+
+    Slippage is implicit (VWAP vs top of book) — never a constant. `levels` must be
+    best-first (bids descending / asks ascending); the caller normalizes.
+    """
+    remaining = size
+    cost = Decimal("0")
+    for price, level_size in levels:
+        take = min(remaining, level_size)
+        cost += price * take
+        remaining -= take
+        if remaining == 0:
+            return cost / size
+    return None

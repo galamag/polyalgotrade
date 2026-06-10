@@ -6,6 +6,9 @@ from pat.core.types import Category
 from pat.costs.polymarket import (
     MAKER_REBATE_RATE,
     MARKET_HALF_SPREAD,
+    POLYGON_TX_GAS_USDC,
+    depth_vwap,
+    gas_cost,
     liquidation_haircut,
     polymarket_maker_fee,
     polymarket_taker_fee,
@@ -73,3 +76,37 @@ def test_liquidation_haircut_scales_with_abs_shares_and_market_half_spread():
     assert liquidation_haircut(Decimal("100")) == Decimal("100") * MARKET_HALF_SPREAD
     assert liquidation_haircut(Decimal("-50")) == Decimal("50") * MARKET_HALF_SPREAD  # abs(short)
     assert liquidation_haircut(Decimal("0")) == Decimal("0")
+
+
+def test_gas_cost_is_per_tx():
+    assert gas_cost(1) == POLYGON_TX_GAS_USDC
+    assert gas_cost(3) == POLYGON_TX_GAS_USDC * 3
+    assert gas_cost(0) == Decimal("0")
+
+
+def test_gas_cost_rejects_negative():
+    with pytest.raises(ValueError):
+        gas_cost(-1)
+
+
+def test_depth_vwap_walks_levels_best_first():
+    levels = [(Decimal("0.40"), Decimal("5")), (Decimal("0.50"), Decimal("5"))]
+    assert depth_vwap(levels, Decimal("5")) == Decimal("0.40")
+    assert depth_vwap(levels, Decimal("10")) == Decimal("0.45")  # (2 + 2.5) / 10
+
+
+def test_depth_vwap_partial_second_level():
+    levels = [(Decimal("0.40"), Decimal("5")), (Decimal("0.50"), Decimal("10"))]
+    # 5 @ 0.40 + 3 @ 0.50 = 3.5 / 8 = 0.4375
+    assert depth_vwap(levels, Decimal("8")) == Decimal("0.4375")
+
+
+def test_depth_vwap_insufficient_depth_is_none():
+    levels = [(Decimal("0.40"), Decimal("5"))]
+    assert depth_vwap(levels, Decimal("6")) is None
+    assert depth_vwap([], Decimal("1")) is None
+
+
+def test_depth_vwap_size_exactly_total_depth():
+    levels = [(Decimal("0.40"), Decimal("5")), (Decimal("0.50"), Decimal("5"))]
+    assert depth_vwap(levels, Decimal("10")) == Decimal("0.45")
