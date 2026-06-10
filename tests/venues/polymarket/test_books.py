@@ -65,3 +65,24 @@ def test_malformed_book_is_skipped() -> None:
 
     out = fetch_books(["tokX"], get_page=fake)
     assert out == {}
+
+
+def test_one_sided_book_is_kept() -> None:
+    def fake(chunk: list[str]) -> list[dict]:
+        return [{"asset_id": chunk[0], "bids": [], "asks": [{"price": "0.6", "size": "3"}]}]
+
+    out = fetch_books(["tokO"], get_page=fake)
+    assert out["tokO"]["bids"] == []
+    assert out["tokO"]["asks"] == [(Decimal("0.6"), Decimal("3"))]
+
+
+def test_malformed_level_skips_only_that_book() -> None:
+    def fake(chunk: list[str]) -> list[dict]:
+        return [
+            {"asset_id": "bad", "bids": [{"price": "0.4"}], "asks": []},  # level lacks size
+            {"asset_id": "good", "bids": [{"price": "0.4", "size": "5"}], "asks": []},
+        ]
+
+    out = fetch_books(["bad", "good"], get_page=fake)
+    assert "bad" not in out
+    assert out["good"]["bids"] == [(Decimal("0.4"), Decimal("5"))]

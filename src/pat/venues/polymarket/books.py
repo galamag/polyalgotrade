@@ -8,7 +8,7 @@ best-first: bids DESCENDING, asks ASCENDING (what costs.depth_vwap expects).
 from __future__ import annotations
 
 from collections.abc import Callable
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -81,10 +81,15 @@ def fetch_books(
         if not token or "bids" not in raw or "asks" not in raw:
             malformed += 1
             continue
-        out[token] = {
-            "bids": _normalize_levels(raw["bids"], descending=True),
-            "asks": _normalize_levels(raw["asks"], descending=False),
-        }
+        try:
+            book: Book = {
+                "bids": _normalize_levels(raw["bids"], descending=True),
+                "asks": _normalize_levels(raw["asks"], descending=False),
+            }
+        except (KeyError, TypeError, InvalidOperation):
+            malformed += 1
+            continue
+        out[token] = book
     if malformed:
         log.warning("books.malformed", count=malformed)
     log.info("books.fetched", requested=len(token_ids), received=len(out))
