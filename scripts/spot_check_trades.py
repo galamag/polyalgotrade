@@ -94,10 +94,11 @@ def check_wallet(
     for t in sample:
         tx = str(t["transactionHash"])
         if tx not in receipt_cache:
-            if len(receipt_cache) >= _MAX_RECEIPTS:
-                log.warning("spot_check.receipt_cap_hit", cap=_MAX_RECEIPTS)
-                break
             receipt_cache[tx] = gr(rpc_url, tx)
+            if receipt_cache[tx] is None:
+                raise RuntimeError(
+                    f"Receipt for tx {tx} is None — tx not found or wrong network/RPC URL"
+                )
         n_checked += 1
         decoded = []
         for lg in receipt_cache[tx].get("logs", []):

@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _SPEC = importlib.util.spec_from_file_location(
     "spot_check_trades",
     Path(__file__).resolve().parents[2] / "scripts" / "spot_check_trades.py",
@@ -81,5 +83,24 @@ def test_receipt_cap_limits_lookups() -> None:
 
     trades = [_trade(f"0xt{i}", ts=i) for i in range(60)]
     res = sct.check_wallet(_WALLET, trades, "http://rpc", n_sample=60, get_receipt=fake)
-    assert len(calls) <= sct._MAX_RECEIPTS
-    assert res["n_checked"] <= sct._MAX_RECEIPTS
+    # the sample slice IS the CU rail: exactly _MAX_RECEIPTS rows processed
+    assert len(calls) == sct._MAX_RECEIPTS
+    assert res["n_checked"] == sct._MAX_RECEIPTS
+
+
+def test_matching_maker_sell_counts_as_match() -> None:
+    # wallet is MAKER and SELLS 10 @ 0.4 -> side=1 (maker gives shares),
+    # maker_amt = shares (10e6), taker_amt = USDC (4e6)
+    receipts = {"0xt2": _receipt("0xt2", side=1, token_id=777, maker_amt=10_000_000,
+                                 taker_amt=4_000_000, maker=_WALLET, taker=_OTHER)}
+    res = sct.check_wallet(
+        _WALLET, [_trade("0xt2", side="SELL")], "http://rpc",
+        get_receipt=lambda _u, h: receipts[h],
+    )
+    assert res["n_matched"] == 1
+
+
+def test_none_receipt_raises_clear_error() -> None:
+    with pytest.raises(RuntimeError, match="wrong network"):
+        sct.check_wallet(_WALLET, [_trade("0xt3")], "http://rpc",
+                         get_receipt=lambda _u, h: None)
