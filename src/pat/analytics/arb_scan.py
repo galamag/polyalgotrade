@@ -7,6 +7,7 @@ book-depth slippage (depth_vwap). Money = Decimal.
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 
 import structlog
@@ -208,3 +209,146 @@ def scan_negrisk_event(
     if sell:
         out.append(sell)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Task 6: Universe builder + window dedup
+# ---------------------------------------------------------------------------
+
+class Universe(BaseModel):
+    negrisk: list[NegRiskTarget]
+    binaries: list[BinaryTarget]
+    n_tokens: int
+    truncated: bool
+
+
+def _coerce_token_pair(raw: object) -> tuple[str, str] | None:
+    """clobTokenIds (JSON string or list) -> (yes, no); None unless exactly 2 ids."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return None
+    if not isinstance(raw, list) or len(raw) != 2:
+        return None
+    return str(raw[0]), str(raw[1])
+
+
+def _market_ref(m: dict[str, object]) -> MarketRef | None:
+    pair = _coerce_token_pair(m.get("clobTokenIds"))
+    cid = str(m.get("conditionId") or "")
+    if pair is None or not cid:
+        return None
+    return MarketRef(
+        condition_id=cid, yes_token=pair[0], no_token=pair[1],
+        category=category_of(m.get("category")),
+    )
+
+
+def _vol(m: dict[str, object]) -> float:
+    try:
+        return float(str(m.get("volume24hr") or 0))
+    except ValueError:
+        return 0.0
+
+
+def build_universe(events: list[dict[str, object]], *, max_books: int) -> Universe:
+    """negRisk events first (by Σ market volume desc), then binaries by volume desc,
+    within the max_books token budget. Markets without exactly 2 token ids are skipped;
+    negRisk events with < 2 valid markets are dropped (no Σ to check)."""
+    nr_events: list[tuple[float, NegRiskTarget]] = []
+    bins: list[tuple[float, BinaryTarget]] = []
+    for ev in events:
+        slug = str(ev.get("slug") or "")
+        markets_raw = ev.get("markets") or []
+        refs = [
+            (r, _vol(m))
+            for m in markets_raw  # type: ignore[attr-defined]
+            if (r := _market_ref(m)) is not None
+        ]
+        if not refs or not slug:
+            continue
+        if ev.get("negRisk") is True:
+            if len(refs) >= 2:
+                target = NegRiskTarget(event_slug=slug, markets=[r for r, _ in refs])
+                nr_events.append((sum(v for _, v in refs), target))
+        else:
+            for r, v in refs:
+                bins.append((v, BinaryTarget(event_slug=slug, market=r)))
+
+    nr_events.sort(key=lambda t: t[0], reverse=True)
+    bins.sort(key=lambda t: t[0], reverse=True)
+
+    budget = max_books
+    truncated = False
+    negrisk_out: list[NegRiskTarget] = []
+    for _, target in nr_events:
+        need = 2 * len(target.markets)
+        if need > budget:
+            truncated = True
+            continue
+        negrisk_out.append(target)
+        budget -= need
+    binaries_out: list[BinaryTarget] = []
+    for _, b in bins:
+        if budget < 2:
+            truncated = True
+            break
+        binaries_out.append(b)
+        budget -= 2
+    return Universe(
+        negrisk=negrisk_out, binaries=binaries_out,
+        n_tokens=max_books - budget, truncated=truncated,
+    )
+
+
+def universe_tokens(universe: Universe) -> list[str]:
+    """All token ids the scanner must fetch books for (YES+NO everywhere, deduped)."""
+    tokens: list[str] = []
+    for t in universe.negrisk:
+        for m in t.markets:
+            tokens.extend((m.yes_token, m.no_token))
+    for b in universe.binaries:
+        tokens.extend((b.market.yes_token, b.market.no_token))
+    return list(dict.fromkeys(tokens))
+
+
+def windows_from_snapshots(
+    snapshots: list[dict[str, object]], *, interval_s: int
+) -> list[dict[str, object]]:
+    """Collapse per-scan violations into WINDOWS (spec §4 frequency unit).
+
+    A window = the same (key, type) present in consecutive scans; it ends when a scan
+    no longer reports it OR when the gap between scans exceeds 2×interval_s (coverage
+    hole — PC off). Offline analysis helper for the §5 verdict run.
+    """
+    out: list[dict[str, object]] = []
+    active: dict[tuple[str, str], dict[str, object]] = {}
+    prev_ts: float | None = None
+    for snap in sorted(snapshots, key=lambda s: float(str(s["ts"]))):
+        ts = float(str(snap["ts"]))
+        if prev_ts is not None and (ts - prev_ts) > 2 * interval_s:
+            out.extend(active.values())
+            active = {}
+        seen: set[tuple[str, str]] = set()
+        for v in snap.get("violations", []):  # type: ignore[attr-defined]
+            k = (str(v["key"]), str(v["type"]))
+            seen.add(k)
+            net = Decimal(str(v["best_net"]))
+            if k in active:
+                w = active[k]
+                w["end_ts"] = ts
+                w["n_scans"] = int(str(w["n_scans"])) + 1
+                if net > Decimal(str(w["max_best_net"])):
+                    w["max_best_net"] = net
+            else:
+                active[k] = {
+                    "key": k[0], "type": k[1], "start_ts": ts, "end_ts": ts,
+                    "n_scans": 1, "max_best_net": net,
+                }
+        for k in list(active):
+            if k not in seen:
+                out.append(active.pop(k))
+        prev_ts = ts
+    out.extend(active.values())
+    return sorted(out, key=lambda w: float(str(w["start_ts"])))

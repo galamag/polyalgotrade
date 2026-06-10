@@ -209,3 +209,95 @@ def test_category_of_maps_known_and_falls_back() -> None:
     assert category_of("Geopolitics") is Category.GEOPOLITICS
     assert category_of("something-new") is Category.OTHER
     assert category_of(None) is Category.OTHER
+
+
+# ---------------------------------------------------------------------------
+# Task 6: build_universe + windows_from_snapshots
+# ---------------------------------------------------------------------------
+
+from pat.analytics.arb_scan import Universe, build_universe, windows_from_snapshots  # noqa: E402,F401,I001
+
+
+def _gmkt(cid: str, y: str, n: str, vol: float, cat: str | None = None) -> dict:
+    return {
+        "conditionId": cid,
+        "clobTokenIds": f'["{y}", "{n}"]',
+        "volume24hr": vol,
+        "category": cat,
+    }
+
+
+def _gev(slug: str, *, negrisk: bool, markets: list[dict]) -> dict:
+    return {"id": slug, "slug": slug, "negRisk": negrisk, "markets": markets}
+
+
+def test_build_universe_negrisk_first_then_binaries_by_volume() -> None:
+    events = [
+        _gev("bin-low", negrisk=False, markets=[_gmkt("0xb1", "l1", "l2", 10.0)]),
+        _gev("nr", negrisk=True, markets=[
+            _gmkt("0xn1", "y1", "n1", 5.0), _gmkt("0xn2", "y2", "n2", 5.0)]),
+        _gev("bin-high", negrisk=False, markets=[_gmkt("0xb2", "h1", "h2", 99.0)]),
+    ]
+    # budget: negrisk needs 4 tokens; one binary (2 tokens) fits; the low-vol one is cut
+    u = build_universe(events, max_books=6)
+    assert [t.event_slug for t in u.negrisk] == ["nr"]
+    assert [b.market.condition_id for b in u.binaries] == ["0xb2"]  # volume desc
+    assert u.n_tokens == 6
+    assert u.truncated is True
+
+
+def test_build_universe_skips_malformed_markets() -> None:
+    events = [
+        _gev("nr", negrisk=True, markets=[
+            _gmkt("0xn1", "y1", "n1", 1.0),
+            {"conditionId": "0xbad", "clobTokenIds": '["only-one"]'},
+            _gmkt("0xn2", "y2", "n2", 1.0),
+        ]),
+    ]
+    u = build_universe(events, max_books=100)
+    assert len(u.negrisk[0].markets) == 2
+    assert u.truncated is False
+
+
+def test_build_universe_single_market_negrisk_event_dropped() -> None:
+    events = [_gev("nr1", negrisk=True, markets=[_gmkt("0xn1", "y1", "n1", 1.0)])]
+    u = build_universe(events, max_books=100)
+    assert u.negrisk == []
+
+
+def _snap(ts: int, keys: list[tuple[str, str]], net: str = "2") -> dict:
+    return {
+        "ts": ts,
+        "violations": [
+            {"key": k, "type": t, "best_net": net} for k, t in keys
+        ],
+    }
+
+
+def test_windows_consecutive_scans_collapse_to_one() -> None:
+    snaps = [
+        _snap(0, [("ev-a", "buy_all")]),
+        _snap(120, [("ev-a", "buy_all")], net="3"),
+        _snap(240, []),
+        _snap(360, [("ev-a", "buy_all")]),
+    ]
+    ws = windows_from_snapshots(snaps, interval_s=120)
+    assert len(ws) == 2
+    assert ws[0]["n_scans"] == 2
+    assert ws[0]["max_best_net"] == Decimal("3")
+    assert ws[1]["start_ts"] == 360
+
+
+def test_windows_scanning_gap_ends_window() -> None:
+    snaps = [
+        _snap(0, [("ev-a", "buy_all")]),
+        _snap(1000, [("ev-a", "buy_all")]),  # gap > 2*interval -> new window
+    ]
+    ws = windows_from_snapshots(snaps, interval_s=120)
+    assert len(ws) == 2
+
+
+def test_windows_distinct_types_are_distinct_windows() -> None:
+    snaps = [_snap(0, [("ev-a", "buy_all"), ("ev-a", "sell_all")])]
+    ws = windows_from_snapshots(snaps, interval_s=120)
+    assert len(ws) == 2
