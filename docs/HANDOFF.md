@@ -4,7 +4,7 @@
 > git-versioned session handoff (unlike `.remember/remember.md`, which the remember plugin empties
 > on start and is not in git). **Update + commit this file at each session end.**
 
-**Last updated:** 2026-06-10 · **Branch:** `main` (ADR 0021 Step 1 DONE: resolution screen PASS, ADR 0022; check `git log`/`git status` for sync).
+**Last updated:** 2026-06-10 · **Branch:** `main` (ADR 0021 Step 1 PASS + Step 2 scanner BUILT, awaiting sustained launch; check `git log`/`git status` for sync).
 
 ## Where we are
 - **Phase 0 ✅** claims · **Phase 1 ✅** data + cost model + backtest core · **Phase 2 ✅** MM backtest pipeline.
@@ -61,24 +61,43 @@
    `scripts/run_mm_backtest.py` (`--quote-band`), `src/pat/strategies/market_maker.py` (`quote_band`),
    `src/pat/costs/polymarket.py` (`MARKET_HALF_SPREAD` / `liquidation_haircut`).
 
-## Next action — **ADR 0021 Step 1 DONE (PASS) → choose Step 2 vs Step 3 ordering**
-The sequenced hybrid (ADR 0021) cleared its first gate: resolution screen **PASS, n=14/50 ≥ 5**
-(ADR [0022](decisions/0022-resolution-screen-verdict.md)) → the expensive half of branch (B) is
-**funded by evidence**. Both remaining tracks are sanctioned; pick the order next session:
-- **Step 2 — A2 combinatorial-arb feasibility scanner** (ADR 0021 says it starts EARLY — it
-  accrues irreplaceable calendar data). Prerequisite first: route **gas + slippage through
-  `src/pat/costs/`** (forced backlog item). Workflow: brainstorm → spec → plan → TDD.
-- **Step 3 — non-survivorship build (now justified):** rank wallets **at entry** (active in a
-  past market window, losers visible), fetch keyless `/trades`, resolution-ground their P&L
-  (reuse `resolution_pnl` + `fetch_resolutions` as-is), **persistence test** (split-window).
-  Then C1 vs D3; if C1 → Approach 3 (lag + taker-fee + slippage replay). Time-box at design.
-- **Small pending user action:** run `uv run python scripts/spot_check_trades.py` (needs
-  `POLYGON_RPC_URL`; ~30 receipts ≈ $0.0003) → upgrade I13 in claims-verification. Report-only;
-  does not change the ADR 0022 verdict.
+## Next action — **A2 scanner BUILT (Step 2) → launch it + decide Step 3 timing**
+ADR 0021 sequenced hybrid: Step 1 PASS (resolution screen, ADR 0022) and **Step 2 (A2 arb
+scanner) is now BUILT, tested (276 green), smoke-verified** — `spec 2026-06-10-a2-arb-scanner-design.md`,
+`plan 2026-06-10-a2-arb-scanner.md`. Three things sit here:
+
+1. **🟢 Launch the scanner (user, recurring): `uv run python scripts/run_arb_scanner.py`**
+   (Ctrl+C to stop; gaps are fine — logged as timestamp gaps). It appends JSONL to
+   `data/raw/arb_scans/YYYY-MM-DD.jsonl`. **The §5 feasibility verdict needs ≥10 scanning-days**
+   (≥4h coverage/day) of accrued data → do NOT write a verdict ADR before then. Keyless, $0.
+   Run it whenever the PC is on; it accrues irreplaceable calendar data (window frequency can't
+   be bought retroactively). VPS-ready as-is.
+2. **§5 verdict run (LATER session, after ≥10 scanning-days):** `arb_scan.windows_from_snapshots`
+   over the accrued JSONL → count net-positive windows (`best_net ≥ $1`). Gate: **≥5 distinct
+   such windows → A2 deep design; else shelve A2 via ADR** ("swept clean" is a valid negative).
+   Claim ceiling: polling@120s sees a LOWER bound on frequency (shorter windows invisible —
+   but unreachable for our speed anyway). Restate in the verdict ADR.
+3. **Step 3 — non-survivorship build (funded by ADR 0022, do when ready):** rank wallets **at
+   entry** (active in a past market window, losers visible), fetch keyless `/trades`,
+   resolution-ground their P&L (reuse `resolution_pnl` + `fetch_resolutions` as-is),
+   **persistence test** (split-window). Then C1 vs D3; if C1 → Approach 3 (lag + taker-fee +
+   slippage replay). Time-box at design.
+
+**Small pending user action (independent):** `uv run python scripts/spot_check_trades.py` (needs
+`POLYGON_RPC_URL`; ~30 receipts ≈ $0.0003) → upgrade I13. Report-only; doesn't change any verdict.
+
 🔴 ADR 0022 binding caveats (do NOT over-claim): diversified = structure flag (28% control base
 rate, 7/25); 18/50 winners negative in recent window → persistence unproven; "≥5 diversified ⇒
 copyable edge" is a FORBIDDEN inference until Step 3 + Approach 3.
 **D1 (UMA-dispute) stays deprioritized** (§6 n≥1000 gate unreachable; ADR 0021).
+
+**A2 scanner facts for the verdict session:** universe = top-Σ-volume within the first 5000 active
+Gamma events (`fetch_active_events` caps at 5000, `capped=True` logged — I15; genuine top-volume
+event could be in the unfetched tail, acceptable for a lower bound). FROZEN §4 math (size grid
+10/50/100/500, conservative I9 per-leg fees, depth-VWAP slippage, gas = 1 tx buy_all/A1, K+1
+sell_all) is in `pat.analytics.arb_scan` and must NOT change mid-observation. CLOB `POST /books`
+shape VERIFIED (I15).
+
 Reuse (keyless): `pat.analytics.resolution_pnl` (frozen formulas), `gamma.
 fetch_markets_by_condition_ids` (**pass closed=True for resolved markets — I14!**),
 `scripts/fetch_resolutions.py` (idempotent; data/raw/resolutions.json regenerable),

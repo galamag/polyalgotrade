@@ -15,9 +15,11 @@ EXECUTED 2026-06-10 → PASS (ADR [0022](decisions/0022-resolution-screen-verdic
 resolution-grounded screen on the saved 75 wallets — **n_diversified = 14/50 ≥ 5**, kill criterion
 cleared, the non-survivorship build (Step 3) is funded by evidence. Binding caveats: diversified is
 a structure flag (28% control base rate), 18/50 winners negative in-window — persistence unproven;
-no edge claim. Next: **Step 2 (A2 scanner; gas/slippage through `costs/` first)** and/or **Step 3
-(non-survivorship + persistence)** — ordering chosen next session. D1 (UMA-dispute) stays
-deprioritized (§6 n≥1000 gate). See
+no edge claim. **Step 2 (A2 structural arb scanner) BUILT 2026-06-10** (spec/plan
+`2026-06-10-a2-arb-scanner-*`; 276 tests green; CLOB books I15, frozen §4 math) — read-only polling
+loop accruing calendar data; **feasibility verdict needs ≥10 scanning-days then the §5 gate (≥5
+net-positive windows ≥$1)**. Step 3 (non-survivorship + persistence) funded, do when ready. D1
+(UMA-dispute) stays deprioritized (§6 n≥1000 gate). See
 [`strategies/market-making.md`](strategies/market-making.md),
 [`superpowers/plans/2026-06-07-phase2-market-making.md`](superpowers/plans/2026-06-07-phase2-market-making.md),
 ADR [0013](decisions/0013-phase2-strategy-catalog.md)/[0014](decisions/0014-orderbook-data-and-informed-crossvenue-mm.md)/[0015](decisions/0015-execution-mode-stamped-by-broker.md).
