@@ -125,3 +125,53 @@ def select_geopolitics_tokens(
         tokens = {t for t in tokens if gr(t) == 0}
     log.info("gamma.geopolitics_selected", tokens=len(tokens), cross_check=cross_check)
     return tokens
+
+
+def _gamma_get_markets(condition_ids: list[str]) -> list[dict[str, Any]]:
+    """Fetch /markets for a batch of condition ids. ONLY wire-touching /markets function."""
+    params: list[tuple[str, str | int | float | bool | None]] = [
+        ("condition_ids", c) for c in condition_ids
+    ]
+    params.append(("limit", str(len(condition_ids))))
+    with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
+        response = client.get(f"{GAMMA}/markets", params=params)
+        response.raise_for_status()
+        body: list[dict[str, Any]] = response.json()
+    return body
+
+
+def fetch_markets_by_condition_ids(
+    condition_ids: list[str],
+    *,
+    batch_size: int = 20,
+    get_page: Callable[[list[str]], list[dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch Gamma market dicts for every conditionId, `batch_size` ids per request.
+
+    A failed batch (HTTPStatusError) is split in half and retried; a single id that
+    still fails is skipped with a warning (the caller records it as unknown).
+    """
+    fetch = get_page or _gamma_get_markets
+    out: list[dict[str, Any]] = []
+
+    def _fetch_chunk(chunk: list[str]) -> None:
+        try:
+            out.extend(fetch(chunk))
+        except httpx.HTTPStatusError as exc:
+            if len(chunk) == 1:
+                log.warning(
+                    "gamma.market_fetch_failed",
+                    condition_id=chunk[0],
+                    status=exc.response.status_code,
+                )
+                return
+            mid = len(chunk) // 2
+            _fetch_chunk(chunk[:mid])
+            _fetch_chunk(chunk[mid:])
+
+    for i in range(0, len(condition_ids), batch_size):
+        _fetch_chunk(condition_ids[i : i + batch_size])
+    log.info(
+        "gamma.markets_fetched", requested=len(condition_ids), received=len(out)
+    )
+    return out
