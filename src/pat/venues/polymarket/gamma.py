@@ -150,6 +150,8 @@ def fetch_markets_by_condition_ids(
 
     A failed batch (HTTPStatusError) is split in half and retried; a single id that
     still fails is skipped with a warning (the caller records it as unknown).
+    Network-level errors (ConnectError, TimeoutException) propagate to the caller —
+    they signal infrastructure failure, not a bad condition id, and are not split-retried.
     """
     fetch = get_page or _gamma_get_markets
     out: list[dict[str, Any]] = []
