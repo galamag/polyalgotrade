@@ -4,7 +4,7 @@
 > git-versioned session handoff (unlike `.remember/remember.md`, which the remember plugin empties
 > on start and is not in git). **Update + commit this file at each session end.**
 
-**Last updated:** 2026-06-10 · **Branch:** `main` (direction decided: ADR 0021 sequenced hybrid; check `git log`/`git status` for sync).
+**Last updated:** 2026-06-10 · **Branch:** `main` (ADR 0021 Step 1 DONE: resolution screen PASS, ADR 0022; check `git log`/`git status` for sync).
 
 ## Where we are
 - **Phase 0 ✅** claims · **Phase 1 ✅** data + cost model + backtest core · **Phase 2 ✅** MM backtest pipeline.
@@ -36,7 +36,19 @@
   **survivorship-tautological** (all-time-PnL frame selects directional bets that *won*) and
   **artifact-laden** (recent-2000 window; redemptions absent from /trades → 33/50 `pnl_proxy<0`, proxy
   falsified by its own frame). `quant-researcher`: GO-WITH-CHANGES → verdict is **INCONCLUSIVE →
-  Approach 2** (NOT "build D3"). 194 tests green; keyless pipeline + 75-wallet dataset reusable.
+  Approach 2** (NOT "build D3"). Keyless pipeline + 75-wallet dataset reusable.
+- **ADR 0021 Step 1 ✅ done — resolution screen PASS** (ADR
+  [0022](decisions/0022-resolution-screen-verdict.md), 2026-06-10): joined all 3625 conditionIds →
+  Gamma resolutions (**two-pass fetch — Gamma /markets HIDES closed markets by default, claim I14**;
+  3358 resolved) → TRUE realized P&L incl. redemptions. **n_diversified = 14/50 ≥ 5 → kill criterion
+  CLEARED**, expensive half of (B) funded. Winners median resolution P&L **$137K vs $0.05 control**
+  (lean proxy's blindness now measured). Quant sign-off GO-WITH-CHANGES; binding caveats in ADR 0022:
+  diversified = **structure flag (28% control base rate)**, 18/50 winners negative in-window
+  (persistence = the Step-3 question), "≥5 diversified ⇒ copyable edge" inference **forbidden**.
+  New: `pat.analytics.resolution_pnl` (frozen §4 formulas), `gamma.fetch_markets_by_condition_ids`
+  (closed param!), `scripts/fetch_resolutions.py` (idempotent), `scripts/run_resolution_screen.py`,
+  S5 fixed (`n_tokens` = markets), `scripts/spot_check_trades.py` (I13 trust step, ⏳ user run
+  pending). 233 tests green; whole build subagent-driven TDD + two-stage reviews + final review.
 
 ## Read next (grounding, in order)
 1. `CLAUDE.md` — operating manual (auto-loads). 2. `docs/roadmap.md` — phase gates.
@@ -49,32 +61,30 @@
    `scripts/run_mm_backtest.py` (`--quote-band`), `src/pat/strategies/market_maker.py` (`quote_band`),
    `src/pat/costs/polymarket.py` (`MARKET_HALF_SPREAD` / `liquidation_haircut`).
 
-## Next action — **direction DECIDED: sequenced hybrid (ADR 0021, 2026-06-10)**
-Neither pure (A) catalog-switch nor pure (B) full Approach 2 — a **sequenced hybrid with
-pre-registered kill criteria** (user + Cowork advisor session). Full decision:
-`docs/decisions/0021-post-wallet-spike-direction.md`. Summary:
-1. **Step 1 (time-box 1–2 sessions): Approach 2 on the saved 75 wallets** — join each saved
-   trade's `conditionId` → Gamma resolution → TRUE realized P&L incl. redemption payouts.
-   Deliverable = a **concentration screen** (systematic many-market P&L vs 1–3-bet whale), NOT a
-   C1/D3 pick. Carried fixes ride along: S5 (`n_tokens` by `conditionId` — field already in the
-   JSON) + on-chain spot-check of `/trades` on 1–2 wallets (I13 trust step).
-   **Kill criterion (pre-registered):** < 5 of 50 top wallets diversified (resolution P&L > 0,
-   ≥ 10 independent conditionIds, top1_share < 0.5) → branch (B) closes ENTIRELY (no
-   non-survivorship build, C1 archived via follow-up ADR). ≥ 5 → expensive half justified.
-2. **Step 2: A2 combinatorial-arb feasibility scanner** (read-only, current markets; net of fees
-   + gas). Prerequisite: route **gas + slippage through `src/pat/costs/`** (backlog item, now
-   forced). Starts early regardless of Step 1's outcome — it accrues irreplaceable calendar data.
-3. **Step 3 (conditional):** kill passed → non-survivorship sample + persistence (then Approach 3
-   for C1); failed → full focus on A2.
-**D1 (UMA-dispute) deprioritized** as first candidate — dispute frequency can't meet the §6
-n≥1000 gate; stays in the ADR 0013 catalog as opportunistic-later.
-Workflow for Step 1: **brainstorm → writing-plans → subagent-driven TDD** (nothing implemented
-before a committed ADR + plan — ADR 0021 is committed; the plan is next).
-Reuse (keyless): `pat.venues.polymarket.trades` (`fetch_user_trades`, `tag_maker_taker`),
-`pat.venues.polymarket.leaderboard`, `pat.analytics.wallet_features`/`wallet_archetype`/`wallet_control`,
-`scripts/fetch_wallet_trades.py` + `scripts/run_wallet_analysis.py`. Saved trade rows carry
-`conditionId`, `outcome`, `outcomeIndex`. (On-chain `fetch_wallet_histories.py` stays as the
-deferred narrow spot-check; never use it for full active-wallet history — getLogs explodes.)
+## Next action — **ADR 0021 Step 1 DONE (PASS) → choose Step 2 vs Step 3 ordering**
+The sequenced hybrid (ADR 0021) cleared its first gate: resolution screen **PASS, n=14/50 ≥ 5**
+(ADR [0022](decisions/0022-resolution-screen-verdict.md)) → the expensive half of branch (B) is
+**funded by evidence**. Both remaining tracks are sanctioned; pick the order next session:
+- **Step 2 — A2 combinatorial-arb feasibility scanner** (ADR 0021 says it starts EARLY — it
+  accrues irreplaceable calendar data). Prerequisite first: route **gas + slippage through
+  `src/pat/costs/`** (forced backlog item). Workflow: brainstorm → spec → plan → TDD.
+- **Step 3 — non-survivorship build (now justified):** rank wallets **at entry** (active in a
+  past market window, losers visible), fetch keyless `/trades`, resolution-ground their P&L
+  (reuse `resolution_pnl` + `fetch_resolutions` as-is), **persistence test** (split-window).
+  Then C1 vs D3; if C1 → Approach 3 (lag + taker-fee + slippage replay). Time-box at design.
+- **Small pending user action:** run `uv run python scripts/spot_check_trades.py` (needs
+  `POLYGON_RPC_URL`; ~30 receipts ≈ $0.0003) → upgrade I13 in claims-verification. Report-only;
+  does not change the ADR 0022 verdict.
+🔴 ADR 0022 binding caveats (do NOT over-claim): diversified = structure flag (28% control base
+rate, 7/25); 18/50 winners negative in recent window → persistence unproven; "≥5 diversified ⇒
+copyable edge" is a FORBIDDEN inference until Step 3 + Approach 3.
+**D1 (UMA-dispute) stays deprioritized** (§6 n≥1000 gate unreachable; ADR 0021).
+Reuse (keyless): `pat.analytics.resolution_pnl` (frozen formulas), `gamma.
+fetch_markets_by_condition_ids` (**pass closed=True for resolved markets — I14!**),
+`scripts/fetch_resolutions.py` (idempotent; data/raw/resolutions.json regenerable),
+`scripts/run_resolution_screen.py`, plus the lean-screen stack (`trades.py`, `leaderboard.py`,
+`wallet_features` etc.). (On-chain `fetch_wallet_histories.py` stays the deferred narrow
+spot-check; never use it for full active-wallet history — getLogs explodes.)
 
 **Open backlog (recorded, not lost):**
 - Golden raw-log fixture (plan Task 7 Step 4b) — still pending; needs one tiny raw fetch
