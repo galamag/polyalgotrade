@@ -4,8 +4,9 @@ Per claim I9: GET gamma /events?tag_id=100265 -> events[].markets[].clobTokenIds
 TRUE 0%-fee selector is per-market `feesEnabled == false` (NOT the tag -- some geopolitics
 markets carry politics_fees 4%). Optional cross-check: clob /fee-rate?token_id= base_fee==0.
 
-Network isolation: `_gamma_get_events` and `_clob_get_fee_rate` are the only functions
-that touch the wire. Monkeypatch them (or pass get_fee_rate=) in tests.
+Network isolation: `_gamma_get_events`, `_gamma_get_events_page`, `_gamma_get_markets`,
+and `_clob_get_fee_rate` are the only functions that touch the wire. Monkeypatch them
+(or pass get_fee_rate=) in tests.
 """
 
 from __future__ import annotations
@@ -231,5 +232,6 @@ def fetch_active_events(
             new += 1
         if new == 0 or len(events) < _GAMMA_PAGE_SIZE:
             break
-    log.info("gamma.active_events_fetched", events=len(out))
+    capped = page == _GAMMA_MAX_PAGES - 1 and len(events) == _GAMMA_PAGE_SIZE
+    log.info("gamma.active_events_fetched", events=len(out), capped=capped)
     return out

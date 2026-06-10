@@ -33,3 +33,18 @@ def test_stops_on_short_page() -> None:
 
     out = fetch_active_events(get_page=fake)
     assert len(out) == 1
+
+
+def test_stops_when_no_new_events() -> None:
+    from pat.venues.polymarket.gamma import _GAMMA_PAGE_SIZE
+
+    full = [{"id": i} for i in range(_GAMMA_PAGE_SIZE)]  # full page
+    calls: list[int] = []
+
+    def fake(*, closed: bool | None, limit: int, offset: int) -> list[dict]:
+        calls.append(offset)
+        return list(full)  # every page identical -> page 1 adds nothing new
+
+    out = fetch_active_events(get_page=fake)
+    assert len(out) == _GAMMA_PAGE_SIZE       # only the first page's ids survive
+    assert len(calls) == 2                     # fetched page 0, then page 1 (all dups) -> stop
