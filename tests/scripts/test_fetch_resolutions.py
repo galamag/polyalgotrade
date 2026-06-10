@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 _SPEC = importlib.util.spec_from_file_location(
     "fetch_resolutions",
@@ -30,8 +32,8 @@ def _trades_dir(tmp_path: Path) -> Path:
     return d
 
 
-def _fake_markets(chunks_seen: list[list[str]]):
-    def fake(ids: list[str], **_: object) -> list[dict]:
+def _fake_markets(chunks_seen: list[list[str]]) -> Callable[..., list[dict[str, Any]]]:
+    def fake(ids: list[str], **_: object) -> list[dict[str, Any]]:
         chunks_seen.append(list(ids))
         out = []
         if "0xres" in ids:

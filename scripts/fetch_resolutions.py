@@ -75,6 +75,9 @@ def run(
         cid = str(rec.pop("conditionId"))
         if cid:
             fetched[cid] = rec
+        else:
+            blog.warning("resolutions.market_without_condition_id")
+    # Un-returned ids keep their existing non-final record (refresh); only new ids become unknown.
     for c in todo:
         if c not in fetched and c not in existing:
             fetched[c] = {"status": UNKNOWN, "winning_index": None}
@@ -98,7 +101,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--out", type=Path, default=Path("data/raw/resolutions.json"))
     p.add_argument(
         "--refresh", action="store_true",
-        help="Re-fetch unresolved/unknown entries (resolved entries are final).",
+        help="Re-fetch unresolved/unknown entries (resolved/ambiguous entries are final).",
     )
     return p.parse_args()
 
