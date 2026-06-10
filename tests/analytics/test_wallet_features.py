@@ -220,3 +220,44 @@ def test_compute_wallet_features_buy_fill_fraction() -> None:
     ]
     f = compute_wallet_features("0xw", fills, marks={})
     assert abs(f.buy_fill_fraction - 2 / 3) < 1e-9
+
+
+# ---- S5: n_tokens counts markets (conditionId), not assets ----
+
+def test_s5_n_tokens_counts_markets_by_condition_id() -> None:
+    trades = [
+        {"asset": "tokYES", "side": "BUY", "price": "0.6", "size": "10",
+         "timestamp": 100, "is_maker": False, "conditionId": "0xc1"},
+        {"asset": "tokNO", "side": "BUY", "price": "0.5", "size": "10",
+         "timestamp": 200, "is_maker": False, "conditionId": "0xc1"},
+    ]
+    fills = wallet_fills_from_trades(trades)
+    assert all(f.condition_id == "0xc1" for f in fills)
+    f = compute_wallet_features("0xw", fills, {})
+    assert f.n_tokens == 1  # one MARKET, even though two assets
+
+
+def test_s5_flip_rate_denominator_stays_per_token_group() -> None:
+    # tokA is flipped (balanced buy+sell), tokB is buy-only; same condition.
+    trades = [
+        {"asset": "tokA", "side": "BUY", "price": "0.4", "size": "10",
+         "timestamp": 100, "is_maker": False, "conditionId": "0xc1"},
+        {"asset": "tokA", "side": "SELL", "price": "0.6", "size": "10",
+         "timestamp": 200, "is_maker": False, "conditionId": "0xc1"},
+        {"asset": "tokB", "side": "BUY", "price": "0.5", "size": "10",
+         "timestamp": 300, "is_maker": False, "conditionId": "0xc1"},
+    ]
+    f = compute_wallet_features("0xw", wallet_fills_from_trades(trades), {})
+    assert f.n_tokens == 1          # market breadth (S5)
+    assert f.flip_rate == 0.5       # flips / token groups — UNCHANGED denominator
+
+
+def test_s5_on_chain_fills_without_condition_fall_back_to_token_id() -> None:
+    fills = [
+        WalletFill(token_id="a", side=Side.BUY, price=Decimal("0.4"), size=Decimal("1"),
+                   block=1, is_maker=False, cashflow=Decimal("-0.4")),
+        WalletFill(token_id="b", side=Side.BUY, price=Decimal("0.4"), size=Decimal("1"),
+                   block=2, is_maker=False, cashflow=Decimal("-0.4")),
+    ]
+    f = compute_wallet_features("0xw", fills, {})
+    assert f.n_tokens == 2

@@ -23,6 +23,7 @@ class WalletFill(BaseModel):
     block: int
     is_maker: bool
     cashflow: Decimal  # BUY -> negative (USDC out); SELL -> positive (USDC in)
+    condition_id: str | None = None  # market id (S5); None on the on-chain path
 
 
 def wallet_fills_from_trades(trades: list[dict[str, object]]) -> list[WalletFill]:
@@ -51,6 +52,7 @@ def wallet_fills_from_trades(trades: list[dict[str, object]]) -> list[WalletFill
                 block=int(str(t["timestamp"])),
                 is_maker=bool(t.get("is_maker", False)),
                 cashflow=cashflow,
+                condition_id=(str(t["conditionId"]) if t.get("conditionId") else None),
             )
         )
     return out
@@ -127,6 +129,8 @@ def compute_wallet_features(
     realized_share = realized_total / pnl_proxy (clamped [0,1]).
     A token is "flipped" only if min(buy_size,sell_size)/max(buy_size,sell_size) >= 0.5
     (substantial two-sidedness). Hold span = last_sell_block - first_buy_block.
+    n_tokens counts unique markets (condition_id or token_id fallback, S5); flip_rate
+    and positive_token_fraction keep per-token-group denominators.
     """
     if not fills:
         return WalletFeatures(
@@ -191,7 +195,9 @@ def compute_wallet_features(
             hold_gaps.append(last_sell_block - first_buy_block)
             roundtrips.append(sell_vwap - buy_vwap)
 
-    n_tokens = len(by_token)
+    # S5: breadth = unique MARKETS (conditionId when present, token_id fallback).
+    n_tokens = len({f.condition_id or f.token_id for f in fills})
+    n_token_groups = len(by_token)
     pnl_proxy = realized_total + unrealized_total
 
     # Loss-aware top1_token_pnl_share (B2): uses abs(pnl) so dominant loss also flags
@@ -207,14 +213,14 @@ def compute_wallet_features(
         n_fills=len(fills),
         n_tokens=n_tokens,
         maker_fill_ratio=sum(1 for f in fills if f.is_maker) / len(fills),
-        flip_rate=flips / n_tokens,
+        flip_rate=flips / n_token_groups,
         median_hold_blocks=int(median(hold_gaps)) if hold_gaps else 0,
         entry_price_mean=_vwap(buys_all),
         turnover_usdc=turnover,
         pnl_proxy=pnl_proxy,
         realized_share=realized_share,
         top1_token_pnl_share=top1_share,
-        positive_token_fraction=len(positive) / n_tokens,
+        positive_token_fraction=len(positive) / n_token_groups,
         roundtrip_return_median=median(roundtrips) if roundtrips else Decimal("0"),
         buy_fill_fraction=sum(1 for f in fills if f.side is Side.BUY) / len(fills),
     )
