@@ -67,7 +67,14 @@ def run(
     blog.info("resolutions.todo", total=len(conds), todo=len(todo), refresh=refresh)
 
     fm = fetch_markets or fetch_markets_by_condition_ids
-    markets: list[dict[str, Any]] = fm(todo) if todo else []
+    # Two passes: Gamma /markets hides closed markets by default (verified 2026-06-10),
+    # so resolved markets are only visible with closed=True; leftovers are then queried
+    # as open markets.
+    markets: list[dict[str, Any]] = fm(todo, closed=True) if todo else []
+    got = {str(m.get("conditionId", "")) for m in markets}
+    leftover = [c for c in todo if c not in got]
+    if leftover:
+        markets += fm(leftover, closed=False)
 
     fetched: dict[str, dict[str, Any]] = {}
     for m in markets:

@@ -127,12 +127,21 @@ def select_geopolitics_tokens(
     return tokens
 
 
-def _gamma_get_markets(condition_ids: list[str]) -> list[dict[str, Any]]:
-    """Fetch /markets for a batch of condition ids. ONLY wire-touching /markets function."""
+def _gamma_get_markets(
+    condition_ids: list[str], *, closed: bool | None = None
+) -> list[dict[str, Any]]:
+    """Fetch /markets for a batch of condition ids. ONLY wire-touching /markets function.
+
+    Gamma /markets returns only NON-closed markets unless ``closed=true`` is passed
+    (verified empirically 2026-06-10) — callers needing resolved markets MUST pass
+    closed=True explicitly.
+    """
     params: list[tuple[str, str | int | float | bool | None]] = [
         ("condition_ids", c) for c in condition_ids
     ]
     params.append(("limit", str(len(condition_ids))))
+    if closed is not None:
+        params.append(("closed", "true" if closed else "false"))
     with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
         response = client.get(f"{GAMMA}/markets", params=params)
         response.raise_for_status()
@@ -144,16 +153,19 @@ def fetch_markets_by_condition_ids(
     condition_ids: list[str],
     *,
     batch_size: int = 20,
+    closed: bool | None = None,
     get_page: Callable[[list[str]], list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch Gamma market dicts for every conditionId, `batch_size` ids per request.
+
+    closed is forwarded to the wire function (Gamma hides closed markets by default).
 
     A failed batch (HTTPStatusError) is split in half and retried; a single id that
     still fails is skipped with a warning (the caller records it as unknown).
     Network-level errors (ConnectError, TimeoutException) propagate to the caller —
     they signal infrastructure failure, not a bad condition id, and are not split-retried.
     """
-    fetch = get_page or _gamma_get_markets
+    fetch = get_page or (lambda chunk: _gamma_get_markets(chunk, closed=closed))
     out: list[dict[str, Any]] = []
 
     def _fetch_chunk(chunk: list[str]) -> None:
