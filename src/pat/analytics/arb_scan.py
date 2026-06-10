@@ -45,6 +45,8 @@ class BinaryTarget(BaseModel):
 
 
 class Leg(BaseModel):
+    # top = best price on the relevant side (best ask for buy legs, best bid for sell
+    # legs — levels[0][0]); None if the book side is empty.
     token_id: str
     top: Decimal | None
     vwap: Decimal | None
@@ -102,6 +104,7 @@ def _grid_violation(
     n_gas_txs: int,
 ) -> Violation | None:
     """Evaluate the size grid; return a Violation only if the best net edge is > 0."""
+    assert len(tokens) == len(legs_levels), "tokens and legs_levels must align"  # noqa: S101
     grid: dict[str, Decimal | None] = {}
     best: tuple[Decimal, Decimal, list[Decimal]] | None = None
     for s in SIZE_GRID:
@@ -109,6 +112,8 @@ def _grid_violation(
             legs_levels, s, category=category, sell=sell, n_gas_txs=n_gas_txs
         )
         grid[str(s)] = r[0] if r is not None else None
+        # strict > keeps the FIRST (smallest) size on a net tie — smaller size is more
+        # executable (less slippage, easier to fill).
         if r is not None and (best is None or r[0] > best[0]):
             best = (r[0], s, r[1])
     if best is None or best[0] <= 0:
