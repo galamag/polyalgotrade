@@ -69,12 +69,22 @@ def condition_pnls(
     size <= 0 or missing conditionId/eventSlug are skipped with a warning counter.
     redemption = max(net_shares, 0) per winning-outcome asset ($1/share).
     """
+    _REQUIRED = {"asset", "side", "price", "size", "outcomeIndex", "timestamp"}
     by_cond: dict[str, list[dict[str, Any]]] = {}
     skipped = 0
     for t in trades:
         cond = str(t.get("conditionId") or "")
         slug = str(t.get("eventSlug") or "")
-        if not cond or not slug or Decimal(str(t.get("size", 0))) <= 0:
+        if not cond or not slug:
+            skipped += 1
+            continue
+        if any(t.get(f) is None for f in _REQUIRED):
+            skipped += 1
+            continue
+        if str(t["side"]).upper() not in {"BUY", "SELL"}:
+            skipped += 1
+            continue
+        if Decimal(str(t.get("size", 0))) <= 0:
             skipped += 1
             continue
         by_cond.setdefault(cond, []).append(t)
@@ -109,6 +119,9 @@ def condition_pnls(
         rec = resolutions.get(cond, {"status": UNKNOWN, "winning_index": None})
         if any(a["net"] < 0 for a in assets.values()):
             status = FRAME_INCOMPLETE
+        elif str(rec.get("status")) == RESOLVED and rec.get("winning_index") is None:
+            log.warning("resolution_pnl.malformed_resolution", condition_id=cond)
+            status = UNKNOWN
         else:
             status = str(rec["status"])
 

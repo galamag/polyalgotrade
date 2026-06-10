@@ -162,3 +162,30 @@ def test_zero_size_and_missing_fields_rows_are_skipped() -> None:
     out = condition_pnls(rows, _RES)
     assert len(out) == 1
     assert out[0].pnl == Decimal("6")
+
+
+# ---------------------------------------------------------------------------
+# Part 0: review hardening (I1, I2, M1)
+# ---------------------------------------------------------------------------
+
+
+def test_row_missing_required_field_is_skipped() -> None:
+    rows = [
+        {k: v for k, v in _row("0xw", "tokA", "BUY", "0.4", "10").items() if k != "asset"},
+        _row("0xw", "tokA", "BUY", "0.4", "10"),
+    ]
+    out = condition_pnls(rows, _RES)
+    assert len(out) == 1
+    assert out[0].pnl == Decimal("6")
+
+
+def test_unrecognized_side_is_skipped() -> None:
+    rows = [_row("0xw", "tokA", "HODL", "0.4", "10"), _row("0xw", "tokA", "BUY", "0.4", "10")]
+    out = condition_pnls(rows, _RES)
+    assert out[0].pnl == Decimal("6")
+
+
+def test_resolved_record_without_winner_is_unknown() -> None:
+    res = {"0xbad": {"status": "resolved", "winning_index": None}}
+    c = _one([_row("0xbad", "tokA", "BUY", "0.4", "10")], res=res)
+    assert c.status == UNKNOWN
