@@ -147,3 +147,80 @@ def condition_pnls(
             )
         )
     return out
+
+
+class WalletResolutionMetrics(BaseModel):
+    wallet: str
+    total_resolution_pnl: Decimal
+    n_conditions_resolved: int
+    n_events_resolved: int
+    n_events_positive: int
+    top1_share: float
+    n_frame_incomplete: int
+    n_unresolved: int
+    n_ambiguous: int
+    n_unknown: int
+    unresolved_exposure: Decimal
+    diversified: bool
+
+
+_MIN_POSITIVE_EVENTS = 10  # spec §4: ">= 10 independent events with event_pnl > 0"
+_MAX_TOP1_SHARE = 0.5  # spec §4: strict <
+_KILL_MIN_DIVERSIFIED = 5  # ADR 0021: < 5 of 50 winners -> branch B closes
+
+
+def wallet_metrics(
+    wallet: str, conditions: list[ConditionPnl]
+) -> WalletResolutionMetrics:
+    """Aggregate per EVENT (eventSlug) and apply the pre-registered diversified rule.
+
+    Gate-eligible = RESOLVED conditions only; every other status feeds its disclosure
+    counter. top1_share is abs-based (a dominant loss also flags concentration).
+    """
+    event_pnl: dict[str, Decimal] = {}
+    n_res = n_fi = n_unres = n_amb = n_unk = 0
+    exposure = Decimal("0")
+    for c in conditions:
+        if c.status == RESOLVED:
+            n_res += 1
+            event_pnl[c.event_slug] = event_pnl.get(c.event_slug, Decimal("0")) + c.pnl
+        elif c.status == FRAME_INCOMPLETE:
+            n_fi += 1
+        elif c.status == UNRESOLVED:
+            n_unres += 1
+            exposure += c.unresolved_exposure
+        elif c.status == AMBIGUOUS:
+            n_amb += 1
+        else:
+            n_unk += 1
+
+    total = sum(event_pnl.values(), Decimal("0"))
+    abs_vals = [abs(v) for v in event_pnl.values()]
+    abs_total = sum(abs_vals, Decimal("0"))
+    top1 = float(max(abs_vals) / abs_total) if abs_total > 0 else 0.0
+    n_pos = sum(1 for v in event_pnl.values() if v > 0)
+    diversified = (
+        total > 0 and n_pos >= _MIN_POSITIVE_EVENTS and top1 < _MAX_TOP1_SHARE
+    )
+    return WalletResolutionMetrics(
+        wallet=wallet,
+        total_resolution_pnl=total,
+        n_conditions_resolved=n_res,
+        n_events_resolved=len(event_pnl),
+        n_events_positive=n_pos,
+        top1_share=top1,
+        n_frame_incomplete=n_fi,
+        n_unresolved=n_unres,
+        n_ambiguous=n_amb,
+        n_unknown=n_unk,
+        unresolved_exposure=exposure,
+        diversified=diversified,
+    )
+
+
+def screen_verdict(
+    winner_metrics: list[WalletResolutionMetrics],
+) -> tuple[int, bool]:
+    """(n_diversified, branch_b_killed) per the pre-registered ADR 0021 kill criterion."""
+    n = sum(1 for m in winner_metrics if m.diversified)
+    return n, n < _KILL_MIN_DIVERSIFIED

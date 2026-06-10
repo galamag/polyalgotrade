@@ -11,8 +11,11 @@ from pat.analytics.resolution_pnl import (
     UNKNOWN,
     UNRESOLVED,
     ConditionPnl,
+    WalletResolutionMetrics,
     condition_pnls,
     parse_resolution,
+    screen_verdict,
+    wallet_metrics,
 )
 
 
@@ -189,3 +192,86 @@ def test_resolved_record_without_winner_is_unknown() -> None:
     res = {"0xbad": {"status": "resolved", "winning_index": None}}
     c = _one([_row("0xbad", "tokA", "BUY", "0.4", "10")], res=res)
     assert c.status == UNKNOWN
+
+
+# ---------------------------------------------------------------------------
+# Task 4: wallet_metrics + screen_verdict
+# ---------------------------------------------------------------------------
+
+
+def _cond(slug: str, pnl: str, status: str = "resolved") -> ConditionPnl:
+    return ConditionPnl(
+        condition_id=f"0x{slug}-{pnl}",
+        event_slug=slug,
+        status=status,
+        pnl=Decimal(pnl),
+    )
+
+
+def test_event_aggregation_sums_conditions_within_event() -> None:
+    m = wallet_metrics("0xw", [_cond("ev-a", "2"), _cond("ev-a", "-1"), _cond("ev-b", "3")])
+    assert m.total_resolution_pnl == Decimal("4")
+    assert m.n_conditions_resolved == 3
+    assert m.n_events_resolved == 2
+    assert m.n_events_positive == 2  # ev-a: +1, ev-b: +3
+
+
+def test_diversified_requires_10_positive_events() -> None:
+    ten = [_cond(f"ev-{i}", "1") for i in range(10)]
+    assert wallet_metrics("0xw", ten).diversified is True
+    nine = [_cond(f"ev-{i}", "1") for i in range(9)]
+    assert wallet_metrics("0xw", nine).diversified is False
+
+
+def test_diversified_rejects_top1_share_at_exactly_half() -> None:
+    # events: one +9 and nine +1 -> abs_total 18, top1 = 0.5 -> NOT diversified
+    conds = [_cond("ev-big", "9")] + [_cond(f"ev-{i}", "1") for i in range(9)]
+    m = wallet_metrics("0xw", conds)
+    assert m.n_events_positive == 10
+    assert m.top1_share == 0.5
+    assert m.diversified is False
+
+
+def test_diversified_requires_positive_total() -> None:
+    # ten +1 events and ten -1 events -> total 0, n_pos=10, top1=0.05 -> NOT diversified
+    conds = [_cond(f"ev-p{i}", "1") for i in range(10)] + [
+        _cond(f"ev-n{i}", "-1") for i in range(10)
+    ]
+    m = wallet_metrics("0xw", conds)
+    assert m.total_resolution_pnl == Decimal("0")
+    assert m.diversified is False
+
+
+def test_disclosure_counters_and_exposure() -> None:
+    conds = [
+        _cond("ev-a", "1"),
+        ConditionPnl(condition_id="0xf", event_slug="ev-f", status=FRAME_INCOMPLETE),
+        ConditionPnl(
+            condition_id="0xu", event_slug="ev-u", status="unresolved",
+            unresolved_exposure=Decimal("6.6"),
+        ),
+        ConditionPnl(condition_id="0xa", event_slug="ev-x", status=AMBIGUOUS),
+        ConditionPnl(condition_id="0xk", event_slug="ev-k", status=UNKNOWN),
+    ]
+    m = wallet_metrics("0xw", conds)
+    assert m.n_frame_incomplete == 1
+    assert m.n_unresolved == 1
+    assert m.n_ambiguous == 1
+    assert m.n_unknown == 1
+    assert m.unresolved_exposure == Decimal("6.6")
+
+
+def _metric(div: bool) -> WalletResolutionMetrics:
+    return WalletResolutionMetrics(
+        wallet="0xw", total_resolution_pnl=Decimal("1"), n_conditions_resolved=1,
+        n_events_resolved=1, n_events_positive=1, top1_share=0.1,
+        n_frame_incomplete=0, n_unresolved=0, n_ambiguous=0, n_unknown=0,
+        unresolved_exposure=Decimal("0"), diversified=div,
+    )
+
+
+def test_screen_verdict_kill_boundary() -> None:
+    four = [_metric(True)] * 4 + [_metric(False)] * 46
+    assert screen_verdict(four) == (4, True)  # < 5 -> branch B killed
+    five = [_metric(True)] * 5 + [_metric(False)] * 45
+    assert screen_verdict(five) == (5, False)
