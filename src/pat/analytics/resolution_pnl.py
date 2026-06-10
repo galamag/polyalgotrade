@@ -31,6 +31,9 @@ def parse_resolution(market: dict[str, Any]) -> dict[str, Any]:
     ambiguous := closed but prices not strictly binary (e.g. 50/50 refunds)
     unresolved otherwise (open market, or closed without prices).
     outcomePrices arrives as a JSON-encoded string (Gamma quirk) or a real list.
+
+    Returns: {"conditionId": str, "status": str, "winning_index": int | None}
+    FRAME_INCOMPLETE / UNKNOWN are produced by condition_pnls, not by this function.
     """
     condition_id = str(market.get("conditionId", ""))
     raw = market.get("outcomePrices")
@@ -41,7 +44,7 @@ def parse_resolution(market: dict[str, Any]) -> dict[str, Any]:
     if not closed or not prices:
         return {"conditionId": condition_id, "status": UNRESOLVED, "winning_index": None}
     ones = [i for i, p in enumerate(prices) if p == 1]
-    zeros = [p for p in prices if p == 0]
-    if len(ones) == 1 and len(zeros) == len(prices) - 1:
+    n_zeros = sum(1 for p in prices if p == 0)
+    if len(ones) == 1 and n_zeros == len(prices) - 1:
         return {"conditionId": condition_id, "status": RESOLVED, "winning_index": ones[0]}
     return {"conditionId": condition_id, "status": AMBIGUOUS, "winning_index": None}

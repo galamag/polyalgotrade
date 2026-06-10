@@ -30,6 +30,7 @@ def test_closed_5050_refund_is_ambiguous() -> None:
         {"conditionId": "0xc3", "closed": True, "outcomePrices": '["0.5", "0.5"]'}
     )
     assert rec["status"] == AMBIGUOUS
+    assert rec["winning_index"] is None
 
 
 def test_outcome_prices_as_real_list_also_parses() -> None:
