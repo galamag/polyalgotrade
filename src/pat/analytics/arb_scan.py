@@ -133,6 +133,47 @@ def _grid_violation(
     )
 
 
+def category_of(raw: object) -> Category:
+    """Map a Gamma category string to our Category; conservative OTHER (5%) fallback."""
+    if not raw:
+        return Category.OTHER
+    try:
+        return Category(str(raw).strip().lower())
+    except ValueError:
+        return Category.OTHER
+
+
+def scan_binary_market(
+    target: BinaryTarget, books: dict[str, Book]
+) -> list[Violation]:
+    """A1 checks on ONE market (spec §4, K=2 collapse).
+
+    a1_buy:  YES_ask + NO_ask < 1 → buy both + merge; gas = 1 tx (merge).
+    a1_sell: YES_bid + NO_bid > 1 → split + sell both; gas = 1 tx (split).
+    """
+    m = target.market
+    tokens = [m.yes_token, m.no_token]
+    asks = [books.get(t, {}).get("asks", []) for t in tokens]
+    bids = [books.get(t, {}).get("bids", []) for t in tokens]
+
+    out: list[Violation] = []
+    buy = _grid_violation(
+        key=m.condition_id, vtype=A1_BUY, event_slug=target.event_slug,
+        condition_ids=[m.condition_id], tokens=tokens, legs_levels=asks,
+        category=m.category, sell=False, n_gas_txs=1,
+    )
+    if buy:
+        out.append(buy)
+    sell = _grid_violation(
+        key=m.condition_id, vtype=A1_SELL, event_slug=target.event_slug,
+        condition_ids=[m.condition_id], tokens=tokens, legs_levels=bids,
+        category=m.category, sell=True, n_gas_txs=1,
+    )
+    if sell:
+        out.append(sell)
+    return out
+
+
 def scan_negrisk_event(
     target: NegRiskTarget, books: dict[str, Book]
 ) -> list[Violation]:

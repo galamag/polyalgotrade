@@ -5,8 +5,11 @@ from __future__ import annotations
 from decimal import Decimal
 
 from pat.analytics.arb_scan import (
+    BinaryTarget,
     MarketRef,
     NegRiskTarget,
+    category_of,
+    scan_binary_market,
     scan_negrisk_event,
 )
 from pat.core.types import Category
@@ -144,3 +147,52 @@ def test_tie_resolves_to_smallest_size() -> None:
     # s=50: y1 vwap (0.90*10+0.99*40)/50=0.972, y2 0 -> cost 48.6 -> gross 1.4; net 1.395
     # (not an exact tie — just assert the selector picks the max net deterministically)
     assert v.best_net == max(g for g in v.grid.values() if g is not None)
+
+
+# ---------------------------------------------------------------------------
+# Task 5: A1 single-market checks + category_of
+# ---------------------------------------------------------------------------
+
+def _binary(cat: Category = Category.GEOPOLITICS) -> BinaryTarget:
+    return BinaryTarget(event_slug="ev-bin", market=_ref("0xb1", "by", "bn", cat))
+
+
+def test_a1_buy_violation() -> None:
+    # YES_ask + NO_ask = 0.95; depth caps executable size at 100
+    books = {
+        "by": _book([], [("0.40", "100")]),
+        "bn": _book([], [("0.55", "100")]),
+    }
+    out = scan_binary_market(_binary(), books)
+    v = next(x for x in out if x.type == "a1_buy")
+    assert v.key == "0xb1"
+    assert v.best_size == Decimal("100")
+    assert v.best_net == Decimal("4.995")  # 100*0.05 - gas(1)
+    assert v.grid["500"] is None
+
+
+def test_a1_sell_violation() -> None:
+    # YES_bid + NO_bid = 1.05; depth 50
+    books = {
+        "by": _book([("0.62", "50")], []),
+        "bn": _book([("0.43", "50")], []),
+    }
+    out = scan_binary_market(_binary(), books)
+    v = next(x for x in out if x.type == "a1_sell")
+    assert v.best_size == Decimal("50")
+    assert v.best_net == Decimal("2.495")  # 50*0.05 - gas(1)
+
+
+def test_a1_no_violation_on_consistent_market() -> None:
+    books = {
+        "by": _book([("0.49", "500")], [("0.51", "500")]),
+        "bn": _book([("0.48", "500")], [("0.50", "500")]),
+    }
+    assert scan_binary_market(_binary(), books) == []
+
+
+def test_category_of_maps_known_and_falls_back() -> None:
+    assert category_of("politics") is Category.POLITICS
+    assert category_of("Geopolitics") is Category.GEOPOLITICS
+    assert category_of("something-new") is Category.OTHER
+    assert category_of(None) is Category.OTHER
