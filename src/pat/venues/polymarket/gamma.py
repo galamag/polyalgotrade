@@ -189,3 +189,47 @@ def fetch_markets_by_condition_ids(
         "gamma.markets_fetched", requested=len(condition_ids), received=len(out)
     )
     return out
+
+
+def _gamma_get_events_page(
+    *, closed: bool | None = None, limit: int = _GAMMA_PAGE_SIZE, offset: int = 0
+) -> list[dict[str, Any]]:
+    """Fetch one /events page WITHOUT a tag filter. Wire-touching."""
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    if closed is not None:
+        params["closed"] = "true" if closed else "false"
+    with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
+        response = client.get(f"{GAMMA}/events", params=params)
+        response.raise_for_status()
+        body: list[dict[str, Any]] = response.json()
+    return body
+
+
+def fetch_active_events(
+    get_page: Callable[..., list[dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
+    """Page through ALL active (closed=false) events; dedup by id; bounded pages.
+
+    Same stopping rules as _gamma_get_all_events (empty page, short page, no-new page);
+    bounded by _GAMMA_MAX_PAGES (silently capped — the count is logged for disclosure).
+    """
+    fetch = get_page or _gamma_get_events_page
+    seen: set[Any] = set()
+    out: list[dict[str, Any]] = []
+    for page in range(_GAMMA_MAX_PAGES):
+        events = fetch(closed=False, limit=_GAMMA_PAGE_SIZE, offset=page * _GAMMA_PAGE_SIZE)
+        if not events:
+            break
+        new = 0
+        for ev in events:
+            eid = ev.get("id")
+            key = eid if eid is not None else id(ev)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(ev)
+            new += 1
+        if new == 0 or len(events) < _GAMMA_PAGE_SIZE:
+            break
+    log.info("gamma.active_events_fetched", events=len(out))
+    return out
