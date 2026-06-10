@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Any
 
 import structlog
+from pydantic import BaseModel
 
 log = structlog.get_logger(__name__)
 
@@ -48,3 +49,88 @@ def parse_resolution(market: dict[str, Any]) -> dict[str, Any]:
     if len(ones) == 1 and n_zeros == len(prices) - 1:
         return {"conditionId": condition_id, "status": RESOLVED, "winning_index": ones[0]}
     return {"conditionId": condition_id, "status": AMBIGUOUS, "winning_index": None}
+
+
+class ConditionPnl(BaseModel):
+    condition_id: str
+    event_slug: str
+    status: str  # resolved | frame_incomplete | unresolved | ambiguous | unknown
+    pnl: Decimal = Decimal("0")  # resolution P&L; meaningful only when status == resolved
+    unresolved_exposure: Decimal = Decimal("0")  # only when status == unresolved
+
+
+def condition_pnls(
+    trades: list[dict[str, Any]], resolutions: dict[str, dict[str, Any]]
+) -> list[ConditionPnl]:
+    """Per-conditionId resolution P&L for ONE wallet's saved trade rows (spec §4).
+
+    Status precedence: frame_incomplete (any asset with net_shares < 0 — its cost basis
+    lies outside the saved recent-2000 window) beats the resolution record. Rows with
+    size <= 0 or missing conditionId/eventSlug are skipped with a warning counter.
+    redemption = max(net_shares, 0) per winning-outcome asset ($1/share).
+    """
+    by_cond: dict[str, list[dict[str, Any]]] = {}
+    skipped = 0
+    for t in trades:
+        cond = str(t.get("conditionId") or "")
+        slug = str(t.get("eventSlug") or "")
+        if not cond or not slug or Decimal(str(t.get("size", 0))) <= 0:
+            skipped += 1
+            continue
+        by_cond.setdefault(cond, []).append(t)
+    if skipped:
+        log.warning("resolution_pnl.rows_skipped", skipped=skipped)
+
+    out: list[ConditionPnl] = []
+    for cond, rows in by_cond.items():
+        event_slug = str(rows[0]["eventSlug"])
+        assets: dict[str, dict[str, Any]] = {}
+        for t in sorted(rows, key=lambda r: int(str(r["timestamp"]))):
+            asset = str(t["asset"])
+            a = assets.setdefault(
+                asset,
+                {
+                    "net": Decimal("0"),
+                    "cash": Decimal("0"),
+                    "outcome_index": int(str(t["outcomeIndex"])),
+                    "last_price": Decimal("0"),
+                },
+            )
+            price = Decimal(str(t["price"]))
+            size = Decimal(str(t["size"]))
+            if str(t["side"]).upper() == "BUY":
+                a["net"] += size
+                a["cash"] -= price * size
+            else:
+                a["net"] -= size
+                a["cash"] += price * size
+            a["last_price"] = price
+
+        rec = resolutions.get(cond, {"status": UNKNOWN, "winning_index": None})
+        if any(a["net"] < 0 for a in assets.values()):
+            status = FRAME_INCOMPLETE
+        else:
+            status = str(rec["status"])
+
+        pnl = Decimal("0")
+        exposure = Decimal("0")
+        if status == RESOLVED:
+            win = int(rec["winning_index"])
+            for a in assets.values():
+                won = a["outcome_index"] == win
+                redemption = max(a["net"], Decimal("0")) if won else Decimal("0")
+                pnl += a["cash"] + redemption
+        elif status == UNRESOLVED:
+            for a in assets.values():
+                exposure += max(a["net"], Decimal("0")) * a["last_price"]
+
+        out.append(
+            ConditionPnl(
+                condition_id=cond,
+                event_slug=event_slug,
+                status=status,
+                pnl=pnl,
+                unresolved_exposure=exposure,
+            )
+        )
+    return out
