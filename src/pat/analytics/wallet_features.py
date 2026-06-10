@@ -93,7 +93,7 @@ def derive_wallet_fills(events: list[dict[str, object]], wallet: str) -> list[Wa
 class WalletFeatures(BaseModel):
     wallet: str
     n_fills: int
-    n_tokens: int
+    n_tokens: int  # unique MARKETS (condition_id when present, token_id fallback) — S5
     maker_fill_ratio: float
     flip_rate: float
     median_hold_blocks: int
@@ -196,6 +196,8 @@ def compute_wallet_features(
             roundtrips.append(sell_vwap - buy_vwap)
 
     # S5: breadth = unique MARKETS (conditionId when present, token_id fallback).
+    # NOTE: do not mix data-api fills (condition_id set) with derive_wallet_fills
+    # output (condition_id always None) in one list — the keys would collide.
     n_tokens = len({f.condition_id or f.token_id for f in fills})
     n_token_groups = len(by_token)
     pnl_proxy = realized_total + unrealized_total
