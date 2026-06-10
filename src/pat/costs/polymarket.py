@@ -115,6 +115,8 @@ def depth_vwap(
     Slippage is implicit (VWAP vs top of book) — never a constant. `levels` must be
     best-first (bids descending / asks ascending); the caller normalizes.
     """
+    if size <= 0:
+        raise ValueError(f"size must be > 0, got {size}")
     remaining = size
     cost = Decimal("0")
     for price, level_size in levels:

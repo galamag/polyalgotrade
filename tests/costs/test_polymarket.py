@@ -110,3 +110,11 @@ def test_depth_vwap_insufficient_depth_is_none():
 def test_depth_vwap_size_exactly_total_depth():
     levels = [(Decimal("0.40"), Decimal("5")), (Decimal("0.50"), Decimal("5"))]
     assert depth_vwap(levels, Decimal("10")) == Decimal("0.45")
+
+
+def test_depth_vwap_rejects_nonpositive_size():
+    levels = [(Decimal("0.40"), Decimal("5"))]
+    with pytest.raises(ValueError):
+        depth_vwap(levels, Decimal("0"))
+    with pytest.raises(ValueError):
+        depth_vwap(levels, Decimal("-1"))
