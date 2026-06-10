@@ -40,7 +40,11 @@ log = structlog.get_logger(__name__)
 def scan_once(
     universe: Universe, *, get_books: Any, max_books: int
 ) -> dict[str, Any]:
-    """One scan: fetch books for the universe, evaluate every target, build a snapshot."""
+    """One scan: fetch books for the universe, evaluate every target, build a snapshot.
+
+    max_books is recorded in the snapshot for traceability only; the cap itself is
+    enforced by build_universe in main_loop.
+    """
     started = time.time()
     tokens = universe_tokens(universe)
     books = get_books(tokens, batch_size=100)
@@ -109,13 +113,18 @@ def main_loop(
                     blog.warning("scanner.universe_refresh_failed", error=str(exc))
             try:
                 snapshot = scan_once(universe, get_books=gb, max_books=max_books)
-                path = _append_snapshot(out_dir, snapshot)
-                blog.info(
-                    "scanner.scan", n=n_scans, violations=len(snapshot["violations"]),
-                    n_books=snapshot["n_books"], out=str(path),
-                )
             except Exception as exc:  # noqa: BLE001 — one bad scan must not kill the loop
                 blog.warning("scanner.scan_failed", n=n_scans, error=str(exc))
+            else:
+                try:
+                    path = _append_snapshot(out_dir, snapshot)
+                    blog.info(
+                        "scanner.scan", n=n_scans,
+                        violations=len(snapshot["violations"]),
+                        n_books=snapshot["n_books"], out=str(path),
+                    )
+                except Exception as exc:  # noqa: BLE001 — write failure must not kill the loop
+                    blog.warning("scanner.write_failed", n=n_scans, error=str(exc))
             n_scans += 1
             if max_scans is None or n_scans < max_scans:
                 zzz(interval)

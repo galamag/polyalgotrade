@@ -81,3 +81,23 @@ def test_universe_refresh_failure_reuses_previous(tmp_path: Path) -> None:
         .strip().splitlines()
     )
     assert len(lines) == 2  # second scan ran on the previous universe
+
+
+def test_scan_failure_does_not_kill_loop(tmp_path: Path) -> None:
+    calls = {"n": 0}
+
+    def flaky_books(ids: list[str], **kw: object) -> dict:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("network blip")
+        return _books(ids, **kw)
+
+    ras.main_loop(
+        interval=120, max_books=100, out_dir=tmp_path / "s", max_scans=2,
+        refresh_every=10, get_events=lambda: _events(), get_books=flaky_books,
+        sleep=lambda _s: None,
+    )
+    files = list((tmp_path / "s").glob("*.jsonl"))
+    assert len(files) == 1
+    # scan 0 failed (no line), scan 1 succeeded (one line)
+    assert len(files[0].read_text(encoding="utf-8").strip().splitlines()) == 1
