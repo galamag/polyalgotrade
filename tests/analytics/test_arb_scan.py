@@ -191,6 +191,19 @@ def test_a1_no_violation_on_consistent_market() -> None:
     assert scan_binary_market(_binary(), books) == []
 
 
+def test_a1_buy_violation_with_fee_category() -> None:
+    # A1 fee path (negRisk fee path is tested separately): CRYPTO rate 0.07, size 10.
+    # fee_by = 10*0.07*0.40*0.60 = 0.16800; fee_bn = 10*0.07*0.55*0.45 = 0.17325
+    # gross = 10*(1-0.95) = 0.5; net@10 = 0.5 - 0.34125 - gas(1) 0.005 = 0.15375
+    books = {
+        "by": _book([], [("0.40", "600")]),
+        "bn": _book([], [("0.55", "600")]),
+    }
+    out = scan_binary_market(_binary(Category.CRYPTO), books)
+    v = next(x for x in out if x.type == "a1_buy")
+    assert v.grid["10"] == Decimal("0.15375")
+
+
 def test_category_of_maps_known_and_falls_back() -> None:
     assert category_of("politics") is Category.POLITICS
     assert category_of("Geopolitics") is Category.GEOPOLITICS
