@@ -7,13 +7,14 @@
 **Last updated:** 2026-11-20 (publication prep only; the research state below is unchanged since 2026-06-10) · **Branch:** `main` (ADR 0021 Step 1 PASS + Step 2 scanner BUILT, awaiting sustained launch; check `git log`/`git status` for sync).
 
 ## 🔴 Publication state (2026-11-20, ADR 0023) — read before any `git push`
-- **History was rewritten** to remove a personal email from the design spec: all 134 commit SHAs
-  changed. Any SHA quoted in older notes refers to the pre-rewrite history.
-- **The old private GitHub repository must never be made public** — it still serves early commits
-  carrying that email. Publish only to a brand-new repository, and push **only `main`** (never
-  `--mirror`). Local backup of the old tip: `refs/backup/pre-email-scrub`.
-- Local `main` shares no history with the old private remote (`origin` when this was written):
-  never pull from it or merge it in.
+- **Public repository:** `origin` → `github.com/galamag/polyalgotrade` (published 2026-11-20).
+  Push **only `main`** there — never `--all` or `--mirror`.
+- **History was rewritten** before publishing, to remove a personal email from the design spec:
+  all 134 commit SHAs changed. Any SHA quoted in older notes refers to the pre-rewrite history.
+- **The old private repository (remote `old-private`) must never be made public** — it still
+  serves early commits carrying that email. Never push to it, pull from it or merge it into
+  `main`; local `main` shares no history with it. Local backup of the old tip:
+  `refs/backup/pre-email-scrub` (not a branch on purpose).
 - README now states plainly that this is a personal experiment in which no strategy passed its gate.
 - No research or code changed in that session; everything below is the 2026-06-10 state.
 
